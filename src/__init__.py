@@ -1,0 +1,1 @@
+"""Affiliate Video Tool."""

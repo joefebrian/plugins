@@ -1,0 +1,15 @@
+[project]
+name = "affiliate-video-tool"
+version = "0.1.0"
+description = "TikTok/Instagram affiliate video scanner, downloader & hero ranker"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp>=2024.1.0",
+    "sqlalchemy>=2.0.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+avt = "src.main:cli"
+avt-web = "src.web.server:main"

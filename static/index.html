@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Affiliate Video Tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">AV</div>
+        <div>
+          <h1>Affiliate Video</h1>
+          <p>Hero video finder</p>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-block" id="btn-scan-open">+ Scan Profil Baru</button>
+
+      <div class="sidebar-section">
+        <h3>Profil Tersimpan</h3>
+        <div id="profile-list" class="profile-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="btn btn-ghost btn-block" id="btn-cookies">Upload Cookies TikTok</button>
+        <p class="sidebar-hint" id="cookies-status">Cek status cookies...</p>
+        <p class="sidebar-hint">Download video HQ otomatis (tanpa watermark)</p>
+        <input type="file" id="cookies-input" accept=".txt" hidden />
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">📊</div>
+        <h2>Belum ada profil</h2>
+        <p>Scan akun TikTok atau Instagram untuk mulai tracking video & GMV.</p>
+        <button class="btn btn-primary" id="btn-scan-empty">Scan Profil Pertama</button>
+      </div>
+
+      <div id="dashboard" class="dashboard hidden">
+        <header class="topbar">
+          <div>
+            <div class="platform-badge" id="profile-platform">tiktok</div>
+            <h2 id="profile-title">@username</h2>
+            <a id="profile-link" href="#" target="_blank" rel="noopener">Buka profil</a>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn btn-secondary" id="btn-rescan">↻ Scan Ulang</button>
+            <button class="btn btn-secondary" id="btn-import-gmv">💰 GMV / Komisi</button>
+            <button class="btn btn-danger" id="btn-delete-profile">🗑 Hapus Profil</button>
+            <div class="download-controls">
+              <select id="download-batch" title="Jumlah video per batch">
+                <option value="5">5 video</option>
+                <option value="10" selected>10 video</option>
+                <option value="20">20 video</option>
+                <option value="50">50 video</option>
+                <option value="">Semua pending</option>
+              </select>
+              <select id="download-quality" title="Kualitas video">
+                <option value="best" selected>HQ Terbaik</option>
+                <option value="1080">Max 1080p</option>
+                <option value="720">Max 720p</option>
+              </select>
+              <button class="btn btn-primary" id="btn-download-pending">↓ Download</button>
+            </div>
+          </div>
+        </header>
+
+        <section class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">Total Video</span>
+            <span class="stat-value" id="stat-total">0</span>
+          </div>
+          <div class="stat-card stat-green">
+            <span class="stat-label">Sudah Download</span>
+            <span class="stat-value" id="stat-downloaded">0</span>
+          </div>
+          <div class="stat-card stat-yellow">
+            <span class="stat-label">Belum Download</span>
+            <span class="stat-value" id="stat-pending">0</span>
+          </div>
+          <div class="stat-card stat-accent">
+            <span class="stat-label">Total GMV</span>
+            <span class="stat-value" id="stat-gmv">Rp 0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Total Komisi</span>
+            <span class="stat-value" id="stat-commission">Rp 0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Terakhir Scan</span>
+            <span class="stat-value stat-small" id="stat-scanned">-</span>
+          </div>
+        </section>
+
+        <div class="content-grid">
+          <section class="panel heroes-panel">
+            <div class="panel-header">
+              <h3>🏆 Hero Videos</h3>
+              <span class="badge" id="hero-rank-badge">by GMV</span>
+            </div>
+            <div id="hero-list" class="hero-list"></div>
+          </section>
+
+          <section class="panel videos-panel">
+            <div class="panel-header">
+              <h3>Daftar Video</h3>
+              <div class="filters">
+                <select id="filter-status">
+                  <option value="all">Semua</option>
+                  <option value="pending">Belum download</option>
+                  <option value="downloaded">Sudah download</option>
+                </select>
+                <select id="filter-sort">
+                  <option value="gmv">Sort: GMV</option>
+                  <option value="views">Sort: Views</option>
+                  <option value="likes">Sort: Likes</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Video</th>
+                    <th>Views</th>
+                    <th>Likes</th>
+                    <th>GMV</th>
+                    <th>Komisi</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="video-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Scan Modal -->
+  <div class="modal hidden" id="modal-scan">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <h3>Scan Profil Baru</h3>
+      <p class="modal-desc">Masukkan username TikTok atau Instagram untuk sync semua video.</p>
+      <form id="form-scan">
+        <label>Platform</label>
+        <div class="platform-picker">
+          <label class="platform-option">
+            <input type="radio" name="platform" value="tiktok" checked />
+            <span>TikTok</span>
+          </label>
+          <label class="platform-option">
+            <input type="radio" name="platform" value="instagram" />
+            <span>Instagram</span>
+          </label>
+        </div>
+        <label>Username</label>
+        <input type="text" name="username" placeholder="username atau paste link profil" required />
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-close> Batal</button>
+          <button type="submit" class="btn btn-primary">Mulai Scan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- GMV Import Modal -->
+  <div class="modal hidden" id="modal-gmv">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-wide">
+      <h3>Data GMV & Komisi</h3>
+      <p class="modal-desc">TikTok tidak expose GMV via API publik. Pilih salah satu cara input:</p>
+
+      <div class="tab-bar">
+        <button type="button" class="tab active" data-tab="api">TikTok Shop API</button>
+        <button type="button" class="tab" data-tab="csv">Upload CSV</button>
+        <button type="button" class="tab" data-tab="paste">Paste Data</button>
+        <button type="button" class="tab" data-tab="manual">Input Manual</button>
+      </div>
+
+      <div class="tab-panel active" id="tab-api">
+        <p class="modal-desc">Hubungkan TikTok Shop Partner API untuk auto-sync GMV & komisi.</p>
+        <div class="api-status" id="api-status">Belum dikonfigurasi</div>
+        <form id="form-tiktok-shop">
+          <label>App Key <span class="label-hint">dari Partner Center</span></label>
+          <input type="text" name="app_key" placeholder="tt_xxxxxxxx" autocomplete="off" />
+          <label>App Secret</label>
+          <input type="password" name="app_secret" placeholder="••••••••" autocomplete="new-password" />
+          <label>Access Token <span class="label-hint">dari OAuth / Authorized App</span></label>
+          <input type="password" name="access_token" placeholder="••••••••" autocomplete="new-password" />
+          <div class="form-row">
+            <div>
+              <label>Shop Cipher</label>
+              <input type="text" name="shop_cipher" placeholder="Opsional" />
+            </div>
+            <div>
+              <label>Region</label>
+              <select name="region">
+                <option value="ID" selected>Indonesia (ID)</option>
+                <option value="US">United States</option>
+                <option value="SG">Singapore</option>
+                <option value="MY">Malaysia</option>
+                <option value="TH">Thailand</option>
+                <option value="VN">Vietnam</option>
+                <option value="PH">Philippines</option>
+                <option value="UK">United Kingdom</option>
+              </select>
+            </div>
+          </div>
+          <label>Sync periode (hari)</label>
+          <select name="sync_days">
+            <option value="7">7 hari</option>
+            <option value="30" selected>30 hari</option>
+            <option value="90">90 hari</option>
+          </select>
+          <div class="modal-actions api-actions">
+            <button type="button" class="btn btn-ghost" data-close>Batal</button>
+            <button type="button" class="btn btn-secondary" id="btn-test-api">Test Koneksi</button>
+            <button type="submit" class="btn btn-primary">Simpan</button>
+            <button type="button" class="btn btn-primary" id="btn-sync-api">↻ Sync GMV</button>
+          </div>
+        </form>
+        <details class="api-help">
+          <summary>Cara dapat API Key</summary>
+          <ol>
+            <li>Daftar di <a href="https://partner.tiktokshop.com" target="_blank">TikTok Shop Partner Center</a></li>
+            <li>Buat App → dapatkan <strong>App Key</strong> & <strong>App Secret</strong></li>
+            <li>Authorize shop → dapatkan <strong>Access Token</strong> & <strong>Shop Cipher</strong></li>
+            <li>Simpan di form ini → klik Sync GMV</li>
+          </ol>
+        </details>
+      </div>
+
+      <div class="tab-panel" id="tab-csv">
+        <p class="modal-desc">Export dari TikTok Shop → Affiliate Center → Analytics → Export CSV</p>
+        <form id="form-gmv">
+          <label>File CSV</label>
+          <input type="file" name="file" accept=".csv" />
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" data-close>Batal</button>
+            <button type="submit" class="btn btn-primary">Import CSV</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="tab-panel" id="tab-paste">
+        <p class="modal-desc">Paste dari Excel/Sheets. Format per baris:</p>
+        <code class="code-hint">video_id, gmv, komisi</code>
+        <form id="form-gmv-paste">
+          <textarea name="text" rows="8" placeholder="7657246351763361045, 8500000, 425000&#10;7655371363988884766, 1200000, 60000"></textarea>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" data-close>Batal</button>
+            <button type="submit" class="btn btn-primary">Import Paste</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="tab-panel" id="tab-manual">
+        <p class="modal-desc">Input komisi/GMV per video dari tabel — klik tombol ✎ di kolom aksi.</p>
+        <form id="form-gmv-manual">
+          <label>Video ID</label>
+          <input type="text" name="video_id" placeholder="7657246351763361045" />
+          <label>GMV (Rp)</label>
+          <input type="number" name="gmv" placeholder="8500000" min="0" step="1000" />
+          <label>Komisi (Rp)</label>
+          <input type="number" name="commission" placeholder="425000" min="0" step="1000" />
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" data-close>Batal</button>
+            <button type="submit" class="btn btn-primary">Simpan</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast & Loading -->
+  <div id="toast" class="toast hidden"></div>
+  <div id="loading" class="loading hidden">
+    <div class="spinner"></div>
+    <span id="loading-text">Processing...</span>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

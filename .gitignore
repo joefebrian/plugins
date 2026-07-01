@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+.DS_Store
+.env
+
+# Local data (jangan commit cookies & download)
+data/cookies/
+data/downloads/
+data/*.db
+data/test_*
+data/*.mp4
+data/*.mp3
+
+# IDE
+.idea/
+.vscode/
+*.swp
