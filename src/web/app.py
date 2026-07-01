@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
 
+from ..auth import (
+    check_rate_limit,
+    clear_rate_limit,
+    record_failed_login,
+    setup_auth,
+)
 from ..cookies_util import filter_tiktok_cookies, validate_tiktok_cookies
 from ..db.models import init_db
 from ..gmv.importer import import_gmv_csv, import_gmv_text
@@ -39,10 +47,79 @@ from ..services import (
     update_video_metrics,
     video_to_dict,
 )
-from .deps import COOKIES_DIR, DB_PATH, DOWNLOAD_DIR, STATIC_DIR, get_session
+from .deps import BASE_DIR, COOKIES_DIR, DB_PATH, DOWNLOAD_DIR, STATIC_DIR, get_session
 from .jobs import job_manager
 
 app = FastAPI(title="Affiliate Video Tool", version="0.2.0")
+
+auth_store, _session_secret = setup_auth(BASE_DIR)
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in ("true", "1", "yes")
+
+PUBLIC_PATHS = frozenset({
+    "/login.html",
+    "/api/auth/login",
+    "/api/auth/me",
+    "/api/health",
+})
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
+def _is_authenticated(request: Request) -> bool:
+    return bool(request.session.get("authenticated"))
+
+
+@app.middleware("http")
+async def require_auth(request: Request, call_next):
+    path = request.url.path
+    if path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    if not _is_authenticated(request):
+        if path.startswith("/api/"):
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        return RedirectResponse("/login.html", status_code=302)
+
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if COOKIE_SECURE:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_session_secret,
+    session_cookie="av_session",
+    max_age=60 * 60 * 24 * 7,
+    same_site="strict",
+    https_only=COOKIE_SECURE,
+)
 
 
 class ScanRequest(BaseModel):
@@ -139,6 +216,50 @@ def _run_download(
         )
     finally:
         session.close()
+
+
+@app.post("/api/auth/login")
+async def auth_login(req: LoginRequest, request: Request):
+    ip = _client_ip(request)
+    rate_msg = check_rate_limit(ip)
+    if rate_msg:
+        raise HTTPException(429, rate_msg)
+
+    username = req.username.strip()
+    if auth_store.verify(username, req.password):
+        clear_rate_limit(ip)
+        request.session.clear()
+        request.session["authenticated"] = True
+        request.session["username"] = auth_store.get_username()
+        return {"ok": True, "username": auth_store.get_username()}
+
+    record_failed_login(ip)
+    raise HTTPException(401, "Username atau password salah")
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    request.session.clear()
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    if _is_authenticated(request):
+        return {"authenticated": True, "username": request.session.get("username")}
+    return {"authenticated": False}
+
+
+@app.post("/api/auth/change-password")
+async def auth_change_password(req: ChangePasswordRequest, request: Request):
+    if not _is_authenticated(request):
+        raise HTTPException(401, "Unauthorized")
+    try:
+        auth_store.change_password(req.current_password, req.new_password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    request.session.clear()
+    return {"ok": True, "message": "Password berhasil diubah. Silakan login ulang."}
 
 
 @app.get("/api/health")

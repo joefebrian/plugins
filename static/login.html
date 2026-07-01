@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — Affiliate Video Tool</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0b0d12;
+      color: #e8ecf4;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: #13161f;
+      border: 1px solid #252b3b;
+      border-radius: 12px;
+      padding: 36px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .logo {
+      width: 48px; height: 48px;
+      background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 16px; margin-bottom: 20px;
+    }
+    h1 { font-size: 20px; margin-bottom: 6px; }
+    p { font-size: 13px; color: #8b95a8; margin-bottom: 24px; }
+    label { display: block; font-size: 12px; color: #8b95a8; margin-bottom: 6px; margin-top: 14px; }
+    input {
+      width: 100%; padding: 11px 12px;
+      background: #1a1f2e; border: 1px solid #252b3b;
+      border-radius: 8px; color: #e8ecf4; font-size: 14px;
+    }
+    input:focus { outline: none; border-color: #6c5ce7; }
+    button {
+      width: 100%; margin-top: 22px; padding: 12px;
+      background: #6c5ce7; color: white; border: none;
+      border-radius: 8px; font-size: 14px; font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #7f71ef; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .error {
+      margin-top: 14px; padding: 10px 12px;
+      background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.3);
+      border-radius: 6px; color: #ff6b6b; font-size: 13px; display: none;
+    }
+    .hint { margin-top: 16px; font-size: 11px; color: #8b95a8; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">AV</div>
+    <h1>Affiliate Video Tool</h1>
+    <p>Masuk untuk melanjutkan</p>
+    <form id="login-form">
+      <label>Username</label>
+      <input type="text" name="username" autocomplete="username" required autofocus />
+      <label>Password</label>
+      <input type="password" name="password" autocomplete="current-password" required />
+      <button type="submit" id="btn-login">Masuk</button>
+      <div class="error" id="error"></div>
+    </form>
+    <p class="hint">Ganti password default di file <code>.env</code></p>
+  </div>
+  <script>
+    const form = document.getElementById('login-form');
+    const error = document.getElementById('error');
+    const btn = document.getElementById('btn-login');
+
+    fetch('/api/auth/me', { credentials: 'same-origin' }).then(r => r.json()).then(d => {
+      if (d.authenticated) window.location.href = '/index.html';
+    }).catch(() => {});
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      error.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Memproses...';
+      const fd = new FormData(form);
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: fd.get('username'),
+            password: fd.get('password'),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || 'Login gagal');
+        window.location.href = '/index.html';
+      } catch (err) {
+        error.textContent = err.message;
+        error.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Masuk';
+      }
+    };
+  </script>
+</body>
+</html>

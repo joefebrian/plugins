@@ -19,6 +19,11 @@ if [ -z "$PYTHON" ]; then
   exit 1
 fi
 
+if [ ! -f .env ] && [ -f .env.example ]; then
+  cp .env.example .env
+  echo "Created .env from .env.example — ganti AUTH_PASSWORD sebelum expose!"
+fi
+
 if [ ! -d .venv ]; then
   echo "Creating venv with $PYTHON ..."
   "$PYTHON" -m venv .venv

@@ -12,6 +12,8 @@ data/*.db
 data/test_*
 data/*.mp4
 data/*.mp3
+data/auth.json
+data/.secret
 
 # IDE
 .idea/

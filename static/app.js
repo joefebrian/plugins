@@ -44,7 +44,11 @@ function hideLoading() {
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch(API + path, opts);
+  const res = await fetch(API + path, { credentials: 'same-origin', ...opts });
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+    throw new Error('Sesi berakhir, silakan login ulang');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || data.message || 'Request failed');
   return data;
@@ -547,6 +551,24 @@ $('#cookies-input').onchange = async (e) => {
   }
 };
 
+$('#btn-logout').onclick = async () => {
+  try {
+    await api('/auth/logout', { method: 'POST' });
+  } catch (_) {}
+  window.location.href = '/login.html';
+};
+
 // Init
-loadProfiles().catch((e) => showToast(e.message, 'error'));
-updateCookiesStatus();
+(async () => {
+  try {
+    const me = await api('/auth/me');
+    if (!me.authenticated) {
+      window.location.href = '/login.html';
+      return;
+    }
+    await loadProfiles();
+    updateCookiesStatus();
+  } catch (e) {
+    if (!String(e.message).includes('login')) showToast(e.message, 'error');
+  }
+})();
