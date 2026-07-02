@@ -1,14 +1,18 @@
 """Run the web server."""
 
+import os
+
 import uvicorn
 
 
 def main():
+    port = int(os.getenv("PORT", "8080"))
+    reload = os.getenv("RAILWAY_ENVIRONMENT") is None
     uvicorn.run(
         "src.web.app:app",
         host="0.0.0.0",
-        port=8080,
-        reload=True,
+        port=port,
+        reload=reload,
     )
 
 
