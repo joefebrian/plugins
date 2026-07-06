@@ -1,9 +1,43 @@
 const API = '/api';
+const THEME_KEY = 'av-theme';
 let currentProfileId = null;
 let pollTimer = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
+
+function getTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem(THEME_KEY, theme);
+  updateThemeLabel();
+}
+
+function updateThemeLabel() {
+  const label = $('#theme-toggle-label');
+  if (!label) return;
+  label.textContent = getTheme() === 'dark' ? 'Dark mode' : 'Light mode';
+}
+
+function refreshIcons() {
+  if (window.lucide && typeof lucide.createIcons === 'function') {
+    lucide.createIcons();
+  }
+}
+
+function initTheme() {
+  updateThemeLabel();
+  refreshIcons();
+  const btn = $('#btn-theme-toggle');
+  if (btn) {
+    btn.onclick = () => setTheme(getTheme() === 'dark' ? 'light' : 'dark');
+  }
+}
+
+initTheme();
 
 function fmtNum(n) {
   if (n == null) return '-';

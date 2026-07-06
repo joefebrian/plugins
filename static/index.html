@@ -6,8 +6,15 @@
   <title>Affiliate Video Tool</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
+  <script>
+    (function () {
+      var saved = localStorage.getItem('av-theme');
+      var dark = saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
 </head>
 <body>
   <div class="app">
@@ -16,13 +23,13 @@
         <div class="brand-icon">AV</div>
         <div>
           <h1>Affiliate Video</h1>
-          <p>Hero video finder</p>
+          <p>TikTok → multi-platform</p>
         </div>
       </div>
 
       <nav class="sidebar-nav">
-        <button class="nav-item active" id="nav-profiles" data-view="profiles">
-          <span class="nav-icon">📊</span>
+        <button type="button" class="nav-item active" id="nav-profiles" data-view="profiles">
+          <span class="nav-icon"><i data-lucide="layout-dashboard"></i></span>
           <span>Dashboard Profil</span>
         </button>
         <div class="nav-group open">
@@ -31,34 +38,34 @@
             <span class="nav-chevron">▾</span>
           </button>
           <div class="nav-submenu" id="nav-multiupload-menu">
-            <button class="nav-item" id="nav-youtube-uploader" data-view="youtube">
-              <span class="nav-icon">▶</span>
+            <button type="button" class="nav-item" id="nav-youtube-uploader" data-view="youtube">
+              <span class="nav-icon"><i data-lucide="youtube"></i></span>
               <span>YouTube Uploader</span>
             </button>
-            <button class="nav-item" id="nav-facebook-uploader" data-view="facebook">
-              <span class="nav-icon">f</span>
+            <button type="button" class="nav-item" id="nav-facebook-uploader" data-view="facebook">
+              <span class="nav-icon"><i data-lucide="facebook"></i></span>
               <span>Facebook Uploader</span>
             </button>
-            <button class="nav-item nav-soon" id="nav-instagram-uploader" data-view="instagram" disabled title="Coming soon">
-              <span class="nav-icon">📷</span>
+            <button type="button" class="nav-item nav-soon" id="nav-instagram-uploader" data-view="instagram" disabled title="Coming soon">
+              <span class="nav-icon"><i data-lucide="instagram"></i></span>
               <span>Instagram Uploader</span>
             </button>
             <button type="button" class="nav-item" id="nav-threads-uploader" data-view="threads">
-              <span class="nav-icon">@</span>
+              <span class="nav-icon"><i data-lucide="at-sign"></i></span>
               <span>Threads Uploader</span>
             </button>
-            <button class="nav-item nav-soon" id="nav-twitter-uploader" data-view="twitter" disabled title="Coming soon">
-              <span class="nav-icon">𝕏</span>
+            <button type="button" class="nav-item nav-soon" id="nav-twitter-uploader" data-view="twitter" disabled title="Coming soon">
+              <span class="nav-icon"><i data-lucide="twitter"></i></span>
               <span>X Uploader</span>
             </button>
-            <button class="nav-item" id="nav-oauth-monitoring" data-view="oauth-monitoring">
-              <span class="nav-icon">📊</span>
+            <button type="button" class="nav-item" id="nav-oauth-monitoring" data-view="oauth-monitoring">
+              <span class="nav-icon"><i data-lucide="activity"></i></span>
               <span>OAuth Monitoring</span>
             </button>
           </div>
         </div>
         <button type="button" class="nav-item" id="nav-settings" data-view="settings">
-          <span class="nav-icon">⚙</span>
+          <span class="nav-icon"><i data-lucide="settings"></i></span>
           <span>Settings</span>
         </button>
       </nav>
@@ -71,6 +78,13 @@
       </div>
 
       <div class="sidebar-footer">
+        <div class="theme-toggle-wrap">
+          <button type="button" class="theme-toggle" id="btn-theme-toggle" aria-label="Ganti tema">
+            <i data-lucide="sun" class="icon-light"></i>
+            <i data-lucide="moon" class="icon-dark"></i>
+            <span id="theme-toggle-label">Light mode</span>
+          </button>
+        </div>
         <button class="btn btn-ghost btn-block" id="btn-cookies">Upload Cookies TikTok</button>
         <p class="sidebar-hint" id="cookies-status">Cek status cookies...</p>
         <p class="sidebar-hint">Download video HQ otomatis (tanpa watermark)</p>
@@ -82,7 +96,7 @@
     <main class="main">
       <div id="view-profiles">
       <div id="empty-state" class="empty-state">
-        <div class="empty-icon">📊</div>
+        <div class="empty-icon"><i data-lucide="bar-chart-3"></i></div>
         <h2>Belum ada profil</h2>
         <p>Scan akun TikTok atau Instagram untuk mulai tracking video & GMV.</p>
         <button class="btn btn-primary" id="btn-scan-empty">Scan Profil Pertama</button>
@@ -1039,6 +1053,7 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
     <span id="loading-text">Processing...</span>
   </div>
 
-  <script src="/app.js?v=20260707-threads"></script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+  <script src="/app.js?v=20260708-theme"></script>
 </body>
 </html>
