@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -17,7 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ..auth import (
     check_rate_limit,
-    clear_rate_limit,
+    clear_rate_limit as clear_auth_rate_limit,
     record_failed_login,
     setup_auth,
 )
@@ -42,13 +44,49 @@ from ..services import (
     get_scraper,
     list_profiles,
     list_videos,
+    parse_date_filter,
     profile_to_dict,
     sync_profile_videos,
     update_video_metrics,
     video_to_dict,
+    videos_to_csv,
 )
+from ..youtube.client import (
+    YouTubeAPIError,
+    YouTubeClient,
+    build_auth_url,
+    channel_to_dict,
+    client_for_channel,
+    create_oauth_state,
+    create_or_update_channel,
+    credentials_from_channel,
+    delete_channel,
+    delete_oauth_app,
+    exchange_code_for_tokens,
+    get_channel,
+    pop_oauth_state_meta,
+    list_channels,
+    persist_channel_tokens,
+    save_oauth_app,
+)
+from ..youtube.quota import (
+    app_monitoring_dict,
+    clear_rate_limit as clear_oauth_rate_limit,
+    get_oauth_app,
+    is_app_available,
+    list_oauth_apps,
+    monitoring_overview,
+    pick_available_app,
+    record_grant,
+)
+from ..youtube.titles import generate_title_variants
+from ..youtube.thumbnail import generate_video_thumbnail
+from ..youtube.uploader import bulk_upload_videos, run_ab_title_test, upload_manual_files
 from .deps import BASE_DIR, COOKIES_DIR, DB_PATH, DOWNLOAD_DIR, STATIC_DIR, get_session
 from .jobs import job_manager
+from .routes.ai_settings import router as ai_settings_router
+from .routes.facebook import register_facebook_profile_routes, router as facebook_router
+from .routes.threads import register_threads_profile_routes, router as threads_router
 
 app = FastAPI(title="Affiliate Video Tool", version="0.2.0")
 
@@ -60,7 +98,24 @@ PUBLIC_PATHS = frozenset({
     "/api/auth/login",
     "/api/auth/me",
     "/api/health",
+    "/api/youtube/oauth/callback",
+    "/api/facebook/oauth/callback",
+    "/api/threads/oauth/callback",
 })
+
+app.include_router(facebook_router)
+app.include_router(threads_router)
+app.include_router(ai_settings_router)
+register_facebook_profile_routes(app)
+register_threads_profile_routes(app)
+
+
+@app.on_event("startup")
+def _startup_threads_scheduler():
+    from ..threads.scheduler import start_autopost_scheduler
+
+    base = os.getenv("PUBLIC_BASE_URL", "http://localhost:8080")
+    start_autopost_scheduler(base)
 
 
 class LoginRequest(BaseModel):
@@ -89,7 +144,7 @@ def _is_authenticated(request: Request) -> bool:
 @app.middleware("http")
 async def require_auth(request: Request, call_next):
     path = request.url.path
-    if path in PUBLIC_PATHS:
+    if path in PUBLIC_PATHS or path.startswith("/api/threads/public-media/"):
         return await call_next(request)
 
     if not _is_authenticated(request):
@@ -103,6 +158,9 @@ async def require_auth(request: Request, call_next):
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
+    path = request.url.path
+    if path.endswith((".js", ".css", ".html")) or path in ("/", "/index.html"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -132,6 +190,13 @@ class DownloadRequest(BaseModel):
     video_ids: Optional[list[str]] = None
     only_pending: bool = True
     quality: str = "best"
+    status: Optional[str] = None
+    sort_by: str = "gmv"
+    min_views: Optional[int] = None
+    max_views: Optional[int] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    apply_filters: bool = False
 
 
 class GmvTextRequest(BaseModel):
@@ -160,6 +225,76 @@ class TikTokShopSyncRequest(BaseModel):
     days: int = 30
 
 
+class YouTubeOAuthAppRequest(BaseModel):
+    label: str = "Backup OAuth App"
+    client_id: str
+    client_secret: Optional[str] = None
+    redirect_uri: Optional[str] = None
+    priority: int = 200
+    daily_grant_limit: int = 100
+    daily_refresh_limit: int = 5000
+    minute_grant_limit: int = 18
+    is_active: bool = True
+
+
+class YouTubeOAuthAppUpdateRequest(BaseModel):
+    label: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    redirect_uri: Optional[str] = None
+    priority: Optional[int] = None
+    daily_grant_limit: Optional[int] = None
+    daily_refresh_limit: Optional[int] = None
+    minute_grant_limit: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class YouTubeConnectRequest(BaseModel):
+    label: Optional[str] = None
+    oauth_app_id: Optional[int] = None
+
+
+class YouTubeUploadRequest(BaseModel):
+    youtube_channel_id: int
+    limit: Optional[int] = 10
+    privacy: str = "private"
+    category_id: str = "22"
+    title_template: str = "{title}"
+    description_template: str = "Source: {url}\nViews: {views}\nGMV: Rp {gmv}"
+    tags: Optional[list[str]] = None
+    status: Optional[str] = None
+    sort_by: str = "gmv"
+    min_views: Optional[int] = None
+    max_views: Optional[int] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    apply_filters: bool = False
+    skip_uploaded: bool = True
+    only_downloaded: bool = True
+    auto_thumbnail: bool = False
+    schedule_enabled: bool = False
+    schedule_start: Optional[str] = None
+    schedule_interval_hours: float = 3.0
+
+
+class YouTubeTitleGenerateRequest(BaseModel):
+    base_title: str = ""
+    keyword: Optional[str] = None
+    video_id: Optional[int] = None
+    profile_id: Optional[int] = None
+    count: int = 5
+    use_ai: bool = True
+
+
+class YouTubeABTestRequest(BaseModel):
+    youtube_channel_id: int
+    video_id: Optional[int] = None
+    title_variants: list[str]
+    description: str = ""
+    tags: Optional[list[str]] = None
+    auto_thumbnail: bool = False
+
+
 def _cookies_path() -> Optional[str]:
     tiktok_only = COOKIES_DIR / "tiktok_only.txt"
     if tiktok_only.exists():
@@ -183,6 +318,7 @@ def _run_scan(platform: str, username: str, cookies_file: Optional[str] = None) 
                 "updated": result["updated"],
                 "downloaded": result["downloaded"],
                 "pending": result["pending"],
+                "incremental": result.get("incremental", False),
             },
         }
     finally:
@@ -196,6 +332,13 @@ def _run_download(
     only_pending: bool,
     cookies_file: Optional[str],
     quality: str = "best",
+    status: Optional[str] = None,
+    sort_by: str = "gmv",
+    min_views: Optional[int] = None,
+    max_views: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    apply_filters: bool = False,
 ) -> dict:
     cookies_file = cookies_file or _cookies_path()
     session = init_db(DB_PATH)
@@ -203,6 +346,7 @@ def _run_download(
         profile = get_profile(session, profile_id)
         if not profile:
             raise ValueError("Profil tidak ditemukan")
+        filter_status = None if not status or status == "all" else status
         return download_videos(
             session,
             profile.platform,
@@ -213,6 +357,13 @@ def _run_download(
             only_pending=only_pending,
             video_ids=video_ids,
             quality=quality,
+            status=filter_status,
+            sort_by=sort_by,
+            min_views=min_views,
+            max_views=max_views,
+            date_from=parse_date_filter(date_from),
+            date_to=parse_date_filter(date_to, end_of_day=True),
+            apply_filters=apply_filters,
         )
     finally:
         session.close()
@@ -227,7 +378,7 @@ async def auth_login(req: LoginRequest, request: Request):
 
     username = req.username.strip()
     if auth_store.verify(username, req.password):
-        clear_rate_limit(ip)
+        clear_auth_rate_limit(ip)
         request.session.clear()
         request.session["authenticated"] = True
         request.session["username"] = auth_store.get_username()
@@ -291,6 +442,10 @@ def api_list_videos(
     profile_id: int,
     status: str = "all",
     sort_by: str = "gmv",
+    min_views: Optional[int] = None,
+    max_views: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
     profile = get_profile(session, profile_id)
@@ -298,8 +453,53 @@ def api_list_videos(
         raise HTTPException(404, "Profil tidak ditemukan")
 
     filter_status = None if status == "all" else status
-    videos = list_videos(session, profile.platform, profile.username, filter_status, sort_by)
+    videos = list_videos(
+        session,
+        profile.platform,
+        profile.username,
+        filter_status,
+        sort_by,
+        min_views=min_views,
+        max_views=max_views,
+        date_from=parse_date_filter(date_from),
+        date_to=parse_date_filter(date_to, end_of_day=True),
+    )
     return [video_to_dict(v) for v in videos]
+
+
+@app.get("/api/profiles/{profile_id}/videos/export.csv")
+def api_export_videos_csv(
+    profile_id: int,
+    status: str = "all",
+    sort_by: str = "gmv",
+    min_views: Optional[int] = None,
+    max_views: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    profile = get_profile(session, profile_id)
+    if not profile:
+        raise HTTPException(404, "Profil tidak ditemukan")
+
+    filter_status = None if status == "all" else status
+    videos = list_videos(
+        session,
+        profile.platform,
+        profile.username,
+        filter_status,
+        sort_by,
+        min_views=min_views,
+        max_views=max_views,
+        date_from=parse_date_filter(date_from),
+        date_to=parse_date_filter(date_to, end_of_day=True),
+    )
+    filename = f"{profile.platform}_{profile.username}_videos.csv"
+    return Response(
+        content=videos_to_csv(videos),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/profiles/{profile_id}/heroes")
@@ -340,7 +540,19 @@ def api_download(profile_id: int, req: DownloadRequest):
     job_manager.run(
         job,
         lambda: _run_download(
-            profile_id, req.limit, req.video_ids, req.only_pending, None, req.quality
+            profile_id,
+            req.limit,
+            req.video_ids,
+            req.only_pending,
+            None,
+            req.quality,
+            req.status,
+            req.sort_by,
+            req.min_views,
+            req.max_views,
+            req.date_from,
+            req.date_to,
+            req.apply_filters,
         ),
         "Downloading videos...",
     )
@@ -430,6 +642,528 @@ def api_save_tiktok_shop_config(req: TikTokShopConfigRequest, session: Session =
 
     cfg = save_shop_config(session, data)
     return {"message": "API credentials tersimpan", "config": config_to_dict(cfg)}
+
+
+def _default_youtube_redirect(request: Request) -> str:
+    env_redirect = os.getenv("YOUTUBE_REDIRECT_URI", "").strip()
+    if env_redirect:
+        return env_redirect
+    return str(request.base_url).rstrip("/") + "/api/youtube/oauth/callback"
+
+
+def _run_youtube_upload(profile_id: int, req: YouTubeUploadRequest) -> dict:
+    session = init_db(DB_PATH)
+    try:
+        filter_status = None if not req.status or req.status == "all" else req.status
+        schedule_start = _parse_publish_at(req.schedule_start) if req.schedule_enabled else None
+        return bulk_upload_videos(
+            session,
+            profile_id,
+            req.youtube_channel_id,
+            limit=req.limit,
+            privacy=req.privacy,
+            category_id=req.category_id,
+            title_template=req.title_template,
+            description_template=req.description_template,
+            tags=req.tags,
+            status=filter_status,
+            sort_by=req.sort_by,
+            min_views=req.min_views,
+            max_views=req.max_views,
+            date_from=parse_date_filter(req.date_from),
+            date_to=parse_date_filter(req.date_to, end_of_day=True),
+            apply_filters=req.apply_filters,
+            skip_uploaded=req.skip_uploaded,
+            only_downloaded=req.only_downloaded,
+            auto_thumbnail=req.auto_thumbnail,
+            thumbnail_dir=DOWNLOAD_DIR / "thumbnails",
+            schedule_start=schedule_start,
+            schedule_interval_hours=req.schedule_interval_hours,
+        )
+    finally:
+        session.close()
+
+
+@app.post("/api/youtube/titles/generate")
+def api_youtube_titles_generate(
+    req: YouTubeTitleGenerateRequest, session: Session = Depends(get_session)
+):
+    from ..db.models import Profile, Video
+
+    context: dict = {}
+    base_title = req.base_title.strip()
+    keyword = req.keyword
+
+    if req.video_id:
+        video = session.query(Video).filter_by(id=req.video_id).first()
+        if not video:
+            raise HTTPException(404, "Video tidak ditemukan")
+        profile = session.query(Profile).filter_by(id=video.profile_id).first()
+        base_title = base_title or video.title or video.platform_video_id
+        keyword = keyword or base_title
+        context = {
+            "title": video.title,
+            "views": video.views or 0,
+            "gmv": video.gmv or 0,
+            "username": profile.username if profile else "",
+            "url": video.url,
+        }
+    elif req.profile_id:
+        profile = get_profile(session, req.profile_id)
+        if not profile:
+            raise HTTPException(404, "Profil tidak ditemukan")
+        keyword = keyword or f"@{profile.username} tiktok"
+        context = {"username": profile.username}
+
+    if not base_title and not keyword:
+        raise HTTPException(400, "Isi base_title atau keyword")
+
+    result = generate_title_variants(
+        session,
+        base_title=base_title or keyword or "review produk",
+        keyword=keyword,
+        context=context,
+        count=min(max(req.count, 2), 8),
+        use_ai=req.use_ai,
+    )
+    return result
+
+
+@app.post("/api/youtube/titles/ab-test")
+def api_youtube_ab_title_test(req: YouTubeABTestRequest):
+    job = job_manager.create("youtube-ab-test")
+    job_manager.run(
+        job,
+        lambda: _run_ab_title_test(req),
+        "A/B title test upload ke YouTube...",
+    )
+    return job_manager.to_dict(job)
+
+
+def _run_ab_title_test(req: YouTubeABTestRequest) -> dict:
+    session = init_db(DB_PATH)
+    try:
+        tags = [t.strip() for t in (req.tags or []) if t.strip()] if req.tags else None
+        return run_ab_title_test(
+            session,
+            req.youtube_channel_id,
+            video_db_id=req.video_id,
+            title_variants=req.title_variants,
+            description=req.description,
+            tags=tags,
+            auto_thumbnail=req.auto_thumbnail,
+        )
+    finally:
+        session.close()
+
+
+@app.get("/api/youtube/thumbnails/preview/{video_id}")
+def api_youtube_thumbnail_preview(video_id: int, session: Session = Depends(get_session)):
+    from ..db.models import Profile, Video
+
+    video = session.query(Video).filter_by(id=video_id).first()
+    if not video or not video.is_downloaded or not video.file_path:
+        raise HTTPException(404, "Video belum di-download")
+    path = Path(video.file_path)
+    if not path.exists():
+        raise HTTPException(404, "File video tidak ditemukan")
+
+    profile = session.query(Profile).filter_by(id=video.profile_id).first()
+    title = video.title or video.platform_video_id
+    try:
+        thumb = generate_video_thumbnail(
+            path,
+            title=title,
+            subtitle=f"@{profile.username}" if profile else "",
+            views=video.views,
+            gmv=video.gmv,
+        )
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+    return FileResponse(thumb, media_type="image/jpeg", filename=f"thumb_{video_id}.jpg")
+
+
+@app.get("/api/youtube/oauth-apps/monitoring")
+def api_youtube_oauth_monitoring(session: Session = Depends(get_session)):
+    return monitoring_overview(session)
+
+
+@app.get("/api/youtube/oauth-apps")
+def api_list_youtube_oauth_apps(session: Session = Depends(get_session)):
+    apps = list_oauth_apps(session)
+    return [app_monitoring_dict(session, app) for app in apps]
+
+
+@app.post("/api/youtube/oauth-apps")
+def api_create_youtube_oauth_app(req: YouTubeOAuthAppRequest, session: Session = Depends(get_session)):
+    if not req.client_secret:
+        raise HTTPException(400, "Client Secret wajib diisi")
+    try:
+        cfg = save_oauth_app(session, req.model_dump())
+    except YouTubeAPIError as e:
+        raise HTTPException(400, str(e))
+    return {
+        "message": "OAuth App backup ditambahkan",
+        "app": app_monitoring_dict(session, cfg),
+    }
+
+
+@app.patch("/api/youtube/oauth-apps/{app_id}")
+def api_update_youtube_oauth_app(
+    app_id: int, req: YouTubeOAuthAppUpdateRequest, session: Session = Depends(get_session)
+):
+    existing = get_oauth_app(session, app_id)
+    if not existing:
+        raise HTTPException(404, "OAuth App tidak ditemukan")
+    data = req.model_dump(exclude_unset=True)
+    if not data.get("client_secret") or str(data.get("client_secret", "")).startswith("••"):
+        data.pop("client_secret", None)
+    try:
+        cfg = save_oauth_app(session, data, app_id=app_id)
+    except YouTubeAPIError as e:
+        raise HTTPException(400, str(e))
+    return {"message": "OAuth App diupdate", "app": app_monitoring_dict(session, cfg)}
+
+
+@app.delete("/api/youtube/oauth-apps/{app_id}")
+def api_delete_youtube_oauth_app(app_id: int, session: Session = Depends(get_session)):
+    try:
+        if not delete_oauth_app(session, app_id):
+            raise HTTPException(404, "OAuth App tidak ditemukan")
+    except YouTubeAPIError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "message": "OAuth App dihapus"}
+
+
+@app.post("/api/youtube/oauth-apps/{app_id}/reset-limit")
+def api_reset_oauth_app_limit(app_id: int, session: Session = Depends(get_session)):
+    app_cfg = get_oauth_app(session, app_id)
+    if not app_cfg:
+        raise HTTPException(404, "OAuth App tidak ditemukan")
+    clear_oauth_rate_limit(session, app_cfg)
+    return {"ok": True, "app": app_monitoring_dict(session, app_cfg)}
+
+
+# Backward-compatible alias
+@app.get("/api/youtube/app-config")
+def api_get_youtube_app_config_legacy(session: Session = Depends(get_session)):
+    apps = list_oauth_apps(session)
+    if not apps:
+        return {"configured": False, "client_id": "", "client_secret": "", "redirect_uri": ""}
+    primary = apps[0]
+    return app_monitoring_dict(session, primary)
+
+
+@app.post("/api/youtube/app-config")
+def api_save_youtube_app_config_legacy(
+    req: YouTubeOAuthAppRequest, session: Session = Depends(get_session)
+):
+    apps = list_oauth_apps(session)
+    data = req.model_dump()
+    if apps:
+        if not data.get("client_secret") or str(data["client_secret"]).startswith("••"):
+            data.pop("client_secret", None)
+        cfg = save_oauth_app(session, data, app_id=apps[0].id)
+    else:
+        if not data.get("client_secret"):
+            raise HTTPException(400, "Client Secret wajib diisi")
+        data.setdefault("label", "Primary OAuth App")
+        data.setdefault("priority", 100)
+        cfg = save_oauth_app(session, data)
+    return {"message": "OAuth App tersimpan", "config": app_monitoring_dict(session, cfg)}
+
+
+@app.get("/api/youtube/channels")
+def api_list_youtube_channels(session: Session = Depends(get_session)):
+    channels = list_channels(session)
+    return [channel_to_dict(ch) for ch in channels]
+
+
+@app.post("/api/youtube/oauth/start")
+def api_youtube_oauth_start(
+    request: Request,
+    req: YouTubeConnectRequest = YouTubeConnectRequest(),
+    session: Session = Depends(get_session),
+):
+    rotated_from = None
+    if req.oauth_app_id:
+        app_cfg = get_oauth_app(session, req.oauth_app_id)
+        if not app_cfg:
+            raise HTTPException(404, "OAuth App tidak ditemukan")
+        if not is_app_available(app_cfg, for_grant=True):
+            fallback = pick_available_app(session, for_grant=True)
+            if fallback and fallback.id != app_cfg.id:
+                rotated_from = app_cfg.label
+                app_cfg = fallback
+            elif not is_app_available(app_cfg, for_grant=True):
+                raise HTTPException(
+                    400,
+                    f"OAuth App '{app_cfg.label}' limit habis (harian atau {app_cfg.minute_grant_limit}/menit). "
+                    "Tambah backup app atau tunggu reset.",
+                )
+    else:
+        app_cfg = pick_available_app(session, for_grant=True)
+
+    if not app_cfg or not app_cfg.client_id or not app_cfg.client_secret:
+        raise HTTPException(
+            400,
+            "Tidak ada OAuth App tersedia. Tambah OAuth App backup di menu Monitoring.",
+        )
+    if not is_app_available(app_cfg, for_grant=True):
+        raise HTTPException(
+            400,
+            f"OAuth App '{app_cfg.label}' grant limit habis. Pilih app backup atau tunggu reset.",
+        )
+
+    redirect_uri = app_cfg.redirect_uri or _default_youtube_redirect(request)
+    if not app_cfg.redirect_uri:
+        app_cfg.redirect_uri = redirect_uri
+        session.commit()
+
+    state = create_oauth_state(req.label or "", oauth_app_id=app_cfg.id)
+    auth_url = build_auth_url(app_cfg.client_id, redirect_uri, state)
+    result = {
+        "auth_url": auth_url,
+        "oauth_app_id": app_cfg.id,
+        "oauth_app_label": app_cfg.label,
+    }
+    if rotated_from:
+        result["rotated_from"] = rotated_from
+        result["message"] = f"Auto-rotate: {rotated_from} → {app_cfg.label}"
+    return result
+
+
+@app.get("/api/youtube/oauth/callback")
+def api_youtube_oauth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    if error:
+        return RedirectResponse(f"/index.html?view=youtube&youtube=error&msg={error}")
+    meta = pop_oauth_state_meta(state or "")
+    if not code or not state or not meta:
+        return RedirectResponse("/index.html?view=youtube&youtube=error&msg=invalid_oauth_state")
+    if time.time() - meta.get("created_at", 0) > 600:
+        return RedirectResponse("/index.html?view=youtube&youtube=error&msg=oauth_expired")
+    session = init_db(DB_PATH)
+    try:
+        oauth_app_id = meta.get("oauth_app_id")
+        app_cfg = get_oauth_app(session, oauth_app_id) if oauth_app_id else pick_available_app(session)
+        if not app_cfg:
+            return RedirectResponse("/index.html?view=youtube&youtube=error&msg=config_missing")
+
+        redirect_uri = app_cfg.redirect_uri or _default_youtube_redirect(request)
+        tokens = exchange_code_for_tokens(
+            app_cfg.client_id, app_cfg.client_secret, redirect_uri, code
+        )
+        record_grant(session, app_cfg)
+
+        from ..db.models import YouTubeChannel as YTChannelModel
+
+        temp_channel = YTChannelModel(
+            refresh_token=tokens.get("refresh_token"),
+            access_token=tokens["access_token"],
+            token_expires_at=tokens["token_expires_at"],
+        )
+        client = YouTubeClient(credentials_from_channel(app_cfg, temp_channel))
+        channel_info = client.get_channel_info()
+
+        channel = create_or_update_channel(
+            session,
+            refresh_token=tokens.get("refresh_token") or "",
+            access_token=tokens["access_token"],
+            token_expires_at=tokens["token_expires_at"],
+            channel_id=channel_info["channel_id"],
+            channel_title=channel_info["channel_title"],
+            channel_thumbnail=channel_info.get("channel_thumbnail"),
+            label=meta.get("label") or channel_info["channel_title"],
+            oauth_app_id=app_cfg.id,
+        )
+        persist_channel_tokens(session, channel, client, channel_info)
+    except YouTubeAPIError as e:
+        return RedirectResponse(
+            f"/index.html?view=youtube&youtube=error&msg={urllib.parse.quote(str(e))}"
+        )
+    finally:
+        session.close()
+
+    return RedirectResponse("/index.html?view=youtube&youtube=connected")
+
+
+@app.delete("/api/youtube/channels/{channel_id}")
+def api_delete_youtube_channel(channel_id: int, session: Session = Depends(get_session)):
+    if not delete_channel(session, channel_id):
+        raise HTTPException(404, "Channel tidak ditemukan")
+    return {"ok": True, "message": "Channel dihapus"}
+
+
+@app.post("/api/youtube/channels/{channel_id}/disconnect")
+def api_disconnect_youtube_channel(channel_id: int, session: Session = Depends(get_session)):
+    channel = get_channel(session, channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel tidak ditemukan")
+    channel.refresh_token = None
+    channel.access_token = None
+    channel.token_expires_at = None
+    session.commit()
+    return {"ok": True, "message": "Channel disconnected"}
+
+
+@app.post("/api/youtube/channels/{channel_id}/test")
+def api_test_youtube_channel(channel_id: int, session: Session = Depends(get_session)):
+    channel = get_channel(session, channel_id)
+    if not channel or not channel.refresh_token:
+        raise HTTPException(400, "Channel belum terhubung.")
+
+    try:
+        client = client_for_channel(session, channel_id)
+        info = client.get_channel_info()
+        persist_channel_tokens(session, channel, client, info)
+    except YouTubeAPIError as e:
+        raise HTTPException(400, str(e))
+
+    return {"ok": True, **info}
+
+
+MANUAL_YT_DIR = DOWNLOAD_DIR / "manual_youtube"
+ALLOWED_MANUAL_VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}
+
+
+def _parse_publish_at(value: str | None) -> datetime | None:
+    if not value or not str(value).strip():
+        return None
+    from datetime import timezone
+
+    raw = str(value).strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError as e:
+        raise HTTPException(400, "Format jadwal tayang tidak valid") from e
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _run_manual_youtube_upload(
+    channel_id: int,
+    saved_paths: list[str],
+    title: str,
+    description: str,
+    privacy: str,
+    tags: list[str] | None,
+    use_filename_as_title: bool,
+    auto_thumbnail: bool = False,
+    publish_at: datetime | None = None,
+) -> dict:
+    session = init_db(DB_PATH)
+    try:
+        channel = get_channel(session, channel_id)
+        category_id = channel.default_category if channel else "22"
+        return upload_manual_files(
+            session,
+            channel_id,
+            [Path(p) for p in saved_paths],
+            title=title,
+            description=description,
+            privacy=privacy,
+            category_id=category_id,
+            tags=tags,
+            use_filename_as_title=use_filename_as_title,
+            auto_thumbnail=auto_thumbnail,
+            publish_at=publish_at,
+        )
+    finally:
+        for path_str in saved_paths:
+            Path(path_str).unlink(missing_ok=True)
+        session.close()
+
+
+@app.post("/api/youtube/channels/{channel_id}/upload-manual")
+async def api_youtube_upload_manual(
+    channel_id: int,
+    files: list[UploadFile] = File(...),
+    title: str = Form(""),
+    description: str = Form(""),
+    privacy: str = Form("private"),
+    tags: str = Form(""),
+    use_filename_as_title: bool = Form(True),
+    auto_thumbnail: bool = Form(False),
+    schedule_enabled: bool = Form(False),
+    publish_at: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    channel = get_channel(session, channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel tidak ditemukan")
+    if not channel.refresh_token:
+        raise HTTPException(400, "Channel belum terhubung")
+
+    if not files:
+        raise HTTPException(400, "Pilih minimal 1 file video")
+
+    pub_dt = None
+    if schedule_enabled:
+        if len(files) != 1:
+            raise HTTPException(400, "Jadwal tayang hanya untuk upload 1 file (satuan)")
+        pub_dt = _parse_publish_at(publish_at)
+        if not pub_dt:
+            raise HTTPException(400, "Isi waktu tayang untuk jadwal")
+
+    MANUAL_YT_DIR.mkdir(parents=True, exist_ok=True)
+    saved_paths: list[str] = []
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+
+    for index, upload in enumerate(files):
+        if not upload.filename:
+            continue
+        ext = Path(upload.filename).suffix.lower()
+        if ext not in ALLOWED_MANUAL_VIDEO_EXT:
+            raise HTTPException(400, f"Format tidak didukung: {upload.filename}")
+
+        dest = MANUAL_YT_DIR / f"{channel_id}_{int(time.time() * 1000)}_{index}_{upload.filename}"
+        with dest.open("wb") as f:
+            shutil.copyfileobj(upload.file, f)
+        saved_paths.append(str(dest))
+
+    if not saved_paths:
+        raise HTTPException(400, "Tidak ada file valid")
+
+    job = job_manager.create("youtube-manual")
+    job_manager.run(
+        job,
+        lambda: _run_manual_youtube_upload(
+            channel_id,
+            saved_paths,
+            title,
+            description,
+            privacy,
+            tag_list,
+            use_filename_as_title,
+            auto_thumbnail,
+            pub_dt,
+        ),
+        f"Upload {len(saved_paths)} file ke YouTube...",
+    )
+    return job_manager.to_dict(job)
+
+
+@app.post("/api/profiles/{profile_id}/youtube-upload")
+def api_youtube_upload(profile_id: int, req: YouTubeUploadRequest):
+    if req.schedule_enabled:
+        if not _parse_publish_at(req.schedule_start):
+            raise HTTPException(400, "Isi waktu tayang video pertama untuk jadwal bulk")
+        if req.schedule_interval_hours < 0.5:
+            raise HTTPException(400, "Interval jadwal minimal 0.5 jam")
+    job = job_manager.create("youtube-upload")
+    job_manager.run(
+        job,
+        lambda: _run_youtube_upload(profile_id, req),
+        "Uploading videos ke YouTube...",
+    )
+    return job_manager.to_dict(job)
 
 
 @app.post("/api/tiktok-shop/test")

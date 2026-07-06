@@ -20,6 +20,49 @@
         </div>
       </div>
 
+      <nav class="sidebar-nav">
+        <button class="nav-item active" id="nav-profiles" data-view="profiles">
+          <span class="nav-icon">📊</span>
+          <span>Dashboard Profil</span>
+        </button>
+        <div class="nav-group open">
+          <button class="nav-group-title" id="nav-multiupload-toggle" type="button">
+            <span>Multiupload Platform</span>
+            <span class="nav-chevron">▾</span>
+          </button>
+          <div class="nav-submenu" id="nav-multiupload-menu">
+            <button class="nav-item" id="nav-youtube-uploader" data-view="youtube">
+              <span class="nav-icon">▶</span>
+              <span>YouTube Uploader</span>
+            </button>
+            <button class="nav-item" id="nav-facebook-uploader" data-view="facebook">
+              <span class="nav-icon">f</span>
+              <span>Facebook Uploader</span>
+            </button>
+            <button class="nav-item nav-soon" id="nav-instagram-uploader" data-view="instagram" disabled title="Coming soon">
+              <span class="nav-icon">📷</span>
+              <span>Instagram Uploader</span>
+            </button>
+            <button type="button" class="nav-item" id="nav-threads-uploader" data-view="threads">
+              <span class="nav-icon">@</span>
+              <span>Threads Uploader</span>
+            </button>
+            <button class="nav-item nav-soon" id="nav-twitter-uploader" data-view="twitter" disabled title="Coming soon">
+              <span class="nav-icon">𝕏</span>
+              <span>X Uploader</span>
+            </button>
+            <button class="nav-item" id="nav-oauth-monitoring" data-view="oauth-monitoring">
+              <span class="nav-icon">📊</span>
+              <span>OAuth Monitoring</span>
+            </button>
+          </div>
+        </div>
+        <button type="button" class="nav-item" id="nav-settings" data-view="settings">
+          <span class="nav-icon">⚙</span>
+          <span>Settings</span>
+        </button>
+      </nav>
+
       <button class="btn btn-primary btn-block" id="btn-scan-open">+ Scan Profil Baru</button>
 
       <div class="sidebar-section">
@@ -37,6 +80,7 @@
     </aside>
 
     <main class="main">
+      <div id="view-profiles">
       <div id="empty-state" class="empty-state">
         <div class="empty-icon">📊</div>
         <h2>Belum ada profil</h2>
@@ -113,16 +157,30 @@
             <div class="panel-header">
               <h3>Daftar Video</h3>
               <div class="filters">
-                <select id="filter-status">
-                  <option value="all">Semua</option>
-                  <option value="pending">Belum download</option>
+                <div class="filter-row">
+                  <select id="filter-status">
+                    <option value="all">Semua</option>
+                    <option value="pending">Belum download</option>
                   <option value="downloaded">Sudah download</option>
+                  <option value="not_youtube">Belum upload YT</option>
+                  <option value="not_facebook">Belum upload FB</option>
                 </select>
-                <select id="filter-sort">
-                  <option value="gmv">Sort: GMV</option>
-                  <option value="views">Sort: Views</option>
-                  <option value="likes">Sort: Likes</option>
-                </select>
+                  <select id="filter-sort">
+                    <option value="gmv">Sort: GMV</option>
+                    <option value="views">Sort: Views</option>
+                    <option value="likes">Sort: Likes</option>
+                    <option value="date">Sort: Upload Date</option>
+                  </select>
+                  <input type="date" id="filter-date-from" title="Upload dari tanggal" />
+                  <input type="date" id="filter-date-to" title="Upload sampai tanggal" />
+                  <input type="number" id="filter-min-views" placeholder="Min views" min="0" />
+                  <input type="number" id="filter-max-views" placeholder="Max views" min="0" />
+                </div>
+                <div class="filter-row">
+                  <button class="btn btn-sm btn-secondary" id="btn-download-filtered">↓ Download Filter</button>
+                  <button class="btn btn-sm btn-ghost" id="btn-export-csv">Export CSV</button>
+                  <span class="filter-count" id="filter-count"></span>
+                </div>
               </div>
             </div>
             <div class="table-wrap">
@@ -131,6 +189,7 @@
                   <tr>
                     <th>Status</th>
                     <th>Video</th>
+                    <th>Upload</th>
                     <th>Views</th>
                     <th>Likes</th>
                     <th>GMV</th>
@@ -143,6 +202,695 @@
             </div>
           </section>
         </div>
+      </div>
+      </div>
+
+      <div id="view-youtube" class="hidden">
+        <header class="page-header">
+          <div>
+            <p class="page-eyebrow">Multiupload Platform</p>
+            <h2>YouTube Uploader</h2>
+            <p class="page-desc">Primary + backup OAuth App untuk failover otomatis. Tiap channel Google beda → <strong>+ Connect Akun</strong>. Monitor quota di <a href="#" id="link-oauth-monitoring">OAuth Monitoring</a>.</p>
+          </div>
+        </header>
+
+        <div id="youtube-quota-banner" class="quota-banner hidden"></div>
+
+        <div class="youtube-layout">
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Primary OAuth App</h3>
+              <button class="btn btn-sm btn-ghost" id="btn-goto-oauth-monitoring" type="button">→ Monitoring</button>
+            </div>
+            <div class="panel-body">
+              <p class="modal-desc">OAuth App utama. Tambah backup di <strong>OAuth Monitoring</strong> kalau grant limit habis.</p>
+              <form id="form-youtube-app-config">
+                <label>Client ID</label>
+                <input type="text" name="client_id" placeholder="xxxx.apps.googleusercontent.com" autocomplete="off" />
+                <label>Client Secret</label>
+                <input type="password" name="client_secret" placeholder="••••••••" autocomplete="new-password" />
+                <label>Redirect URI</label>
+                <input type="text" name="redirect_uri" placeholder="http://localhost:8080/api/youtube/oauth/callback" />
+                <button type="submit" class="btn btn-primary">Simpan Primary App</button>
+              </form>
+              <div id="youtube-oauth-summary" class="oauth-mini-summary"></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Channel YouTube</h3>
+              <button class="btn btn-sm btn-secondary" id="btn-youtube-connect" type="button">+ Connect Akun</button>
+            </div>
+            <div class="panel-body">
+              <label>OAuth App untuk connect</label>
+              <select id="youtube-connect-app">
+                <option value="">Auto — pilih app tersedia</option>
+              </select>
+              <label>Label channel baru (opsional)</label>
+              <input type="text" id="youtube-connect-label" placeholder="mis: Channel Affiliate A" />
+              <div id="youtube-channel-list" class="channel-list"></div>
+              <details class="api-help">
+                <summary>Cara setup Google OAuth</summary>
+                <ol>
+                  <li>Google Cloud Console → enable <strong>YouTube Data API v3</strong></li>
+                  <li>Create OAuth Client ID (Web) → tambah Redirect URI di atas</li>
+                  <li>Simpan Primary OAuth App di atas</li>
+                  <li>Tambah <strong>backup OAuth App</strong> di OAuth Monitoring (Google Cloud project berbeda)</li>
+                  <li><strong>+ Connect Akun</strong> per channel — login pakai email Google channel itu</li>
+                  <li>Tambahkan email tim sebagai <strong>Test users</strong> di setiap OAuth consent screen</li>
+                </ol>
+              </details>
+            </div>
+          </section>
+
+          <section class="panel panel-wide">
+            <div class="panel-header"><h3>Bulk Upload</h3></div>
+            <div class="panel-body">
+              <form id="form-youtube-upload">
+                <div class="form-row">
+                  <div>
+                    <label>Profil sumber video</label>
+                    <select id="yt-upload-profile" name="profile_id"></select>
+                  </div>
+                  <div>
+                    <label>Target YouTube Channel</label>
+                    <select id="yt-upload-channel" name="youtube_channel_id" required></select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div>
+                    <label>Batch</label>
+                    <select name="limit">
+                      <option value="5">5 video</option>
+                      <option value="10" selected>10 video</option>
+                      <option value="20">20 video</option>
+                      <option value="50">50 video</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Privacy</label>
+                    <select name="privacy" id="yt-bulk-privacy">
+                      <option value="private" selected>Private</option>
+                      <option value="unlisted">Unlisted</option>
+                      <option value="public">Public</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="schedule-block" id="yt-bulk-schedule-block">
+                  <label class="checkbox-label">
+                    <input type="checkbox" name="schedule_enabled" id="yt-bulk-schedule-enabled" />
+                    Jadwalkan tayang bulk (interval 3 jam)
+                  </label>
+                  <div id="yt-bulk-schedule-fields" class="hidden">
+                    <label>Waktu tayang video pertama</label>
+                    <input type="datetime-local" name="schedule_start" id="yt-bulk-schedule-start" />
+                    <p class="modal-desc" id="yt-bulk-schedule-preview">Video berikutnya otomatis +3 jam: #1 → #2 (+3j) → #3 (+6j) … Semua di-upload sebagai <strong>Private</strong> lalu tayang sesuai jadwal.</p>
+                  </div>
+                </div>
+                <label>Title template</label>
+                <input type="text" name="title_template" value="{title}" />
+                <label>Description template</label>
+                <textarea name="description_template" rows="3">{url}
+
+Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
+                <label>Tags (pisah koma)</label>
+                <input type="text" name="tags" placeholder="affiliate, tiktok" />
+                <label class="checkbox-label">
+                  <input type="checkbox" name="skip_uploaded" checked />
+                  Skip video yang sudah di-upload ke channel ini
+                </label>
+                <p class="modal-desc">Tip: set filter di Dashboard Profil dulu (views/tanggal), lalu centang "pakai filter" di bawah.</p>
+                <label class="checkbox-label">
+                  <input type="checkbox" name="apply_filters" />
+                  Pakai filter aktif dari Dashboard Profil
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" name="auto_thumbnail" />
+                  Auto-thumbnail dari frame video (butuh ffmpeg)
+                </label>
+                <button type="submit" class="btn btn-primary">▶ Mulai Bulk Upload</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="panel panel-wide" id="panel-yt-single-upload">
+            <div class="panel-header">
+              <h3>Upload Satuan</h3>
+              <span class="badge">1 video · AI Title · Jadwal</span>
+            </div>
+            <div class="panel-body">
+              <p class="modal-desc">Upload satu video dari file lokal. AI Title Lab hanya di sini. Jadwal satuan untuk 1 file; bulk pakai interval 3 jam di atas.</p>
+
+              <details class="yt-single-tool" id="panel-ai-title-lab">
+                <summary class="yt-single-tool-summary">✨ AI Title Lab <span class="label-hint">(opsional)</span></summary>
+                <div class="yt-single-tool-body">
+                  <p class="modal-desc">Generate judul dari <strong>YouTube search autocomplete</strong> + AI (OpenAI/Gemini). Atur API key di <a href="#" id="link-settings-ai">Settings</a>. Pilih juara → pakai ke form upload di bawah.</p>
+                  <div class="form-row">
+                    <div>
+                      <label>Profil / video sumber</label>
+                      <select id="yt-title-profile"></select>
+                    </div>
+                    <div>
+                      <label>Video (opsional)</label>
+                      <select id="yt-title-video">
+                        <option value="">— Pakai keyword manual —</option>
+                      </select>
+                    </div>
+                  </div>
+                  <label>Keyword / judul dasar</label>
+                  <input type="text" id="yt-title-keyword" placeholder="review produk viral tiktok" />
+                  <div class="form-row">
+                    <button type="button" class="btn btn-primary" id="btn-yt-generate-titles">✨ Generate Judul AI</button>
+                    <label class="checkbox-label" style="margin:0;align-self:center">
+                      <input type="checkbox" id="yt-title-use-ai" checked />
+                      Pakai AI (OpenAI/Gemini — atur di Settings)
+                    </label>
+                  </div>
+                  <div id="yt-search-suggestions" class="tag-chips hidden"></div>
+                  <div id="yt-title-variants" class="title-variants"></div>
+                  <div id="yt-ab-actions" class="hidden ab-actions">
+                    <p class="modal-desc">Pilih 2–4 judul untuk A/B test (upload unlisted ke channel):</p>
+                    <div class="form-row">
+                      <select id="yt-ab-channel"></select>
+                      <button type="button" class="btn btn-secondary" id="btn-yt-run-ab">▶ Jalankan A/B Test</button>
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <form id="form-youtube-manual">
+                <div class="form-row">
+                  <div>
+                    <label>Target YouTube Channel</label>
+                    <select id="yt-manual-channel" name="channel_id" required></select>
+                  </div>
+                  <div>
+                    <label>Privacy</label>
+                    <select name="privacy" id="yt-manual-privacy">
+                      <option value="private" selected>Private</option>
+                      <option value="unlisted">Unlisted</option>
+                      <option value="public">Public</option>
+                    </select>
+                  </div>
+                </div>
+                <label>File video <span class="label-hint">1 file untuk jadwal tayang</span></label>
+                <input type="file" id="yt-manual-files" name="files" accept="video/mp4,video/quicktime,video/webm,.mkv,.m4v" required />
+                <label>Title <span class="label-hint">kosongkan = pakai nama file</span></label>
+                <input type="text" name="title" placeholder="Judul video" />
+                <label class="checkbox-label">
+                  <input type="checkbox" name="use_filename_as_title" checked />
+                  Pakai nama file sebagai title jika title kosong
+                </label>
+                <label>Description</label>
+                <textarea name="description" rows="3" placeholder="Deskripsi video..."></textarea>
+                <label>Tags (pisah koma)</label>
+                <input type="text" name="tags" placeholder="review, affiliate" />
+                <label class="checkbox-label">
+                  <input type="checkbox" name="auto_thumbnail" />
+                  Auto-thumbnail dari frame video
+                </label>
+                <div class="schedule-block" id="yt-manual-schedule-block">
+                  <label class="checkbox-label">
+                    <input type="checkbox" name="schedule_enabled" id="yt-manual-schedule-enabled" />
+                    Jadwalkan tayang (upload satuan)
+                  </label>
+                  <div id="yt-manual-schedule-fields" class="hidden">
+                    <label>Waktu tayang</label>
+                    <input type="datetime-local" name="publish_at" id="yt-manual-publish-at" />
+                    <p class="modal-desc">Video di-upload sebagai <strong>Private</strong> lalu otomatis tayang di jadwal. Minimal ~15 menit dari sekarang (aturan YouTube).</p>
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary">▶ Upload ke YouTube</button>
+              </form>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div id="view-threads" class="hidden">
+        <header class="page-header">
+          <div>
+            <p class="page-eyebrow">Multiupload Platform</p>
+            <h2>Threads Uploader</h2>
+            <p class="page-desc">Multi-akun Threads · AI Topic viral · Auto-post dengan gaya bahasa Gen Z / Milenial (ID) atau US slang. Pakai Meta App yang sama dengan Facebook + produk <strong>Threads API</strong>.</p>
+          </div>
+        </header>
+
+        <div class="youtube-layout">
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Threads Accounts</h3>
+              <button class="btn btn-sm btn-secondary" id="btn-threads-connect" type="button">+ Connect Akun</button>
+            </div>
+            <div class="panel-body">
+              <label>Label (opsional)</label>
+              <input type="text" id="threads-connect-label" placeholder="mis: Akun Affiliate 1" />
+              <div id="threads-account-list" class="channel-list"></div>
+              <details class="api-help">
+                <summary>Setup Meta Threads API</summary>
+                <ol>
+                  <li>Meta Developer → tambah produk <strong>Threads API</strong> di app yang sama</li>
+                  <li>Scopes: <code>threads_basic</code>, <code>threads_content_publish</code></li>
+                  <li>Redirect URI: <code>{origin}/api/threads/oauth/callback</code></li>
+                  <li>Akun harus IG Professional + terhubung ke Threads</li>
+                  <li><strong>+ Connect Akun</strong> per login Meta (multi-akun = connect berulang)</li>
+                </ol>
+              </details>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header"><h3>Voice &amp; Niche</h3></div>
+            <div class="panel-body">
+              <p class="modal-desc">Gaya bahasa AI untuk caption &amp; auto-post akun terpilih.</p>
+              <label>Akun</label>
+              <select id="threads-voice-account"></select>
+              <div class="form-row">
+                <div>
+                  <label>Locale</label>
+                  <select id="threads-voice-locale">
+                    <option value="id" selected>Indonesia</option>
+                    <option value="us">United States</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Gaya bahasa</label>
+                  <select id="threads-voice-style">
+                    <option value="genz" selected>Gen Z</option>
+                    <option value="millennial">Milenial</option>
+                    <option value="us_slang">US Slang</option>
+                  </select>
+                </div>
+              </div>
+              <label>Niche / seed topic</label>
+              <input type="text" id="threads-niche" placeholder="affiliate tips, skincare, gaming..." />
+              <button type="button" class="btn btn-primary btn-block" id="btn-threads-save-voice">Simpan Voice</button>
+            </div>
+          </section>
+
+          <section class="panel panel-wide">
+            <div class="panel-header">
+              <h3>AI Topic Lab</h3>
+              <span class="badge">Viral + Engagement</span>
+            </div>
+            <div class="panel-body">
+              <p class="modal-desc">Generate topik &amp; draft caption dari trend Threads + AI. Butuh API key di <a href="#" id="link-settings-threads">Settings</a>.</p>
+              <div class="form-row">
+                <button type="button" class="btn btn-primary" id="btn-threads-generate-topics">✨ Generate Topik Viral</button>
+                <select id="threads-topic-account">
+                  <option value="">— Tanpa keyword API —</option>
+                </select>
+              </div>
+              <div id="threads-topic-hints" class="tag-chips hidden"></div>
+              <div id="threads-topic-list" class="title-variants"></div>
+            </div>
+          </section>
+
+          <section class="panel panel-wide">
+            <div class="panel-header"><h3>Post Manual</h3></div>
+            <div class="panel-body">
+              <form id="form-threads-post">
+                <label>Akun Threads</label>
+                <select id="threads-post-account" name="account_id" required></select>
+                <label>Caption (max 500)</label>
+                <textarea name="caption" rows="4" placeholder="Draft caption..." required></textarea>
+                <label>Topic tag (opsional, tanpa #)</label>
+                <input type="text" name="topic_tag" placeholder="affiliatetips" />
+                <button type="submit" class="btn btn-primary">▶ Post ke Threads</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="panel panel-wide">
+            <div class="panel-header"><h3>Auto-Post</h3></div>
+            <div class="panel-body">
+              <form id="form-threads-autopost">
+                <label>Akun</label>
+                <select id="threads-autopost-account" name="account_id" required></select>
+                <label class="checkbox-label">
+                  <input type="checkbox" name="enabled" id="threads-autopost-enabled" />
+                  Aktifkan auto-post (background setiap ±interval)
+                </label>
+                <div class="form-row">
+                  <div>
+                    <label>Interval (jam)</label>
+                    <input type="number" name="interval_hours" value="4" min="1" step="0.5" />
+                  </div>
+                  <div>
+                    <label>Max post / hari</label>
+                    <input type="number" name="posts_per_day" value="6" min="1" max="50" />
+                  </div>
+                </div>
+                <label>Profil video (opsional, untuk post video)</label>
+                <select id="threads-autopost-profile" name="profile_id"></select>
+                <label class="checkbox-label">
+                  <input type="checkbox" name="post_video" checked />
+                  Sertakan video dari profil jika ada
+                </label>
+                <label>Topic seed auto-post</label>
+                <input type="text" name="topic_seed" placeholder="sama dengan niche" />
+                <div class="form-row">
+                  <button type="submit" class="btn btn-primary">💾 Simpan Auto-Post</button>
+                  <button type="button" class="btn btn-secondary" id="btn-threads-autopost-run">▶ Post Sekarang</button>
+                </div>
+                <p class="modal-desc" id="threads-autopost-status"></p>
+              </form>
+            </div>
+          </section>
+
+          <section class="panel panel-wide">
+            <div class="panel-header"><h3>Bulk Post Video</h3></div>
+            <div class="panel-body">
+              <form id="form-threads-bulk">
+                <div class="form-row">
+                  <div>
+                    <label>Profil sumber</label>
+                    <select id="threads-bulk-profile" name="profile_id"></select>
+                  </div>
+                  <div>
+                    <label>Akun Threads</label>
+                    <select id="threads-bulk-account" name="threads_account_id" required></select>
+                  </div>
+                </div>
+                <label>Batch</label>
+                <select name="limit">
+                  <option value="3">3 post</option>
+                  <option value="5" selected>5 post</option>
+                  <option value="10">10 post</option>
+                </select>
+                <label class="checkbox-label">
+                  <input type="checkbox" name="use_ai_caption" checked />
+                  AI caption (voice locale akun)
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" name="skip_uploaded" checked />
+                  Skip video sudah dipost ke akun ini
+                </label>
+                <button type="submit" class="btn btn-primary">▶ Bulk Post ke Threads</button>
+              </form>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div id="view-facebook" class="hidden">
+        <header class="page-header">
+          <div>
+            <p class="page-eyebrow">Multiupload Platform</p>
+            <h2>Facebook Uploader</h2>
+            <p class="page-desc">Upload video ke Facebook Page via Meta Graph API. Connect Page → bulk upload dari video TikTok/IG atau upload manual file.</p>
+          </div>
+        </header>
+
+        <div class="youtube-layout">
+          <section class="panel">
+            <div class="panel-header"><h3>Meta App Config</h3></div>
+            <div class="panel-body">
+              <p class="modal-desc">App ID & Secret dari <a href="https://developers.facebook.com" target="_blank" rel="noopener">Meta Developer</a>.</p>
+              <form id="form-facebook-app-config">
+                <label>App ID</label>
+                <input type="text" name="app_id" placeholder="123456789012345" autocomplete="off" />
+                <label>App Secret</label>
+                <input type="password" name="app_secret" placeholder="••••••••" autocomplete="new-password" />
+                <label>Redirect URI</label>
+                <input type="text" name="redirect_uri" placeholder="http://localhost:8080/api/facebook/oauth/callback" />
+                <button type="submit" class="btn btn-primary">Simpan Meta App</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Facebook Pages</h3>
+              <button class="btn btn-sm btn-secondary" id="btn-facebook-connect" type="button">+ Connect Page</button>
+            </div>
+            <div class="panel-body">
+              <label>Label prefix (opsional)</label>
+              <input type="text" id="facebook-connect-label" placeholder="mis: Affiliate Page" />
+              <div id="facebook-page-list" class="channel-list"></div>
+              <details class="api-help">
+                <summary>Cara setup Meta App</summary>
+                <ol>
+                  <li>Buat App di Meta Developer → tipe <strong>Business</strong></li>
+                  <li>Tambah produk: <strong>Facebook Login</strong> + <strong>Pages API</strong></li>
+                  <li>Redirect URI = URL di atas</li>
+                  <li>Mode Development → tambah akun sebagai <strong>Tester</strong></li>
+                  <li><strong>+ Connect Page</strong> → login Facebook → semua Page yang kamu kelola akan terhubung</li>
+                </ol>
+              </details>
+            </div>
+          </section>
+
+          <section class="panel panel-wide">
+            <div class="panel-header"><h3>Bulk Upload</h3></div>
+            <div class="panel-body">
+              <form id="form-facebook-upload">
+                <div class="form-row">
+                  <div>
+                    <label>Profil sumber video</label>
+                    <select id="fb-upload-profile" name="profile_id"></select>
+                  </div>
+                  <div>
+                    <label>Target Facebook Page</label>
+                    <select id="fb-upload-page" name="facebook_page_id" required></select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div>
+                    <label>Batch</label>
+                    <select name="limit">
+                      <option value="5">5 video</option>
+                      <option value="10" selected>10 video</option>
+                      <option value="20">20 video</option>
+                      <option value="50">50 video</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Publish</label>
+                    <select name="published">
+                      <option value="true" selected>Published (langsung tampil)</option>
+                      <option value="false">Unpublished (draft)</option>
+                    </select>
+                  </div>
+                </div>
+                <label>Title template</label>
+                <input type="text" name="title_template" value="{title}" />
+                <label>Description template</label>
+                <textarea name="description_template" rows="3">{url}
+
+Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
+                <label class="checkbox-label">
+                  <input type="checkbox" name="skip_uploaded" checked />
+                  Skip video yang sudah di-upload ke Page ini
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" name="apply_filters" />
+                  Pakai filter aktif dari Dashboard Profil
+                </label>
+                <button type="submit" class="btn btn-primary">▶ Mulai Bulk Upload</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="panel panel-wide">
+            <div class="panel-header"><h3>Upload Manual dari File</h3></div>
+            <div class="panel-body">
+              <p class="modal-desc">Upload video langsung dari komputer ke Facebook Page.</p>
+              <form id="form-facebook-manual">
+                <div class="form-row">
+                  <div>
+                    <label>Target Facebook Page</label>
+                    <select id="fb-manual-page" name="page_id" required></select>
+                  </div>
+                  <div>
+                    <label>Publish</label>
+                    <select name="published">
+                      <option value="true" selected>Published</option>
+                      <option value="false">Unpublished</option>
+                    </select>
+                  </div>
+                </div>
+                <label>File video <span class="label-hint">bisa pilih banyak</span></label>
+                <input type="file" name="files" accept="video/mp4,video/quicktime,video/webm,.mkv,.m4v" multiple required />
+                <label>Title <span class="label-hint">kosongkan = pakai nama file</span></label>
+                <input type="text" name="title" placeholder="Judul video" />
+                <label class="checkbox-label">
+                  <input type="checkbox" name="use_filename_as_title" checked />
+                  Pakai nama file sebagai title jika title kosong
+                </label>
+                <label>Description</label>
+                <textarea name="description" rows="3" placeholder="Deskripsi video..."></textarea>
+                <button type="submit" class="btn btn-primary">▶ Upload File ke Facebook</button>
+              </form>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div id="view-settings" class="hidden">
+        <header class="page-header">
+          <div>
+            <p class="page-eyebrow">System</p>
+            <h2>Settings — AI Provider</h2>
+            <p class="page-desc">Kelola API key OpenAI &amp; Gemini. System auto-rotate ke backup saat quota/token habis. Pantau penggunaan harian di bawah.</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-secondary" id="btn-ai-refresh" type="button">↻ Refresh</button>
+          </div>
+        </header>
+
+        <div id="ai-summary-cards" class="oauth-summary-grid"></div>
+
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <h3>AI Providers</h3>
+            <span class="badge" id="ai-providers-count">0 providers</span>
+          </div>
+          <div class="panel-body">
+            <div class="table-wrap">
+              <table class="oauth-table">
+                <thead>
+                  <tr>
+                    <th>Provider</th>
+                    <th>Status</th>
+                    <th>Token Usage</th>
+                    <th>Request Usage</th>
+                    <th>Model</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="ai-providers-table"></tbody>
+              </table>
+            </div>
+            <p class="modal-desc oauth-table-hint">Priority lebih kecil = dipakai duluan. Saat limit habis atau rate limit, system otomatis pindah ke provider backup berikutnya.</p>
+          </div>
+        </section>
+
+        <section class="panel panel-wide">
+          <div class="panel-header"><h3>Tambah AI Provider</h3></div>
+          <div class="panel-body">
+            <p class="modal-desc">Tambah primary (OpenAI/Gemini) atau backup key dari akun/API berbeda untuk failover otomatis.</p>
+            <form id="form-ai-provider">
+              <div class="form-row">
+                <div>
+                  <label>Label</label>
+                  <input type="text" name="label" placeholder="Primary OpenAI" required />
+                </div>
+                <div>
+                  <label>Provider</label>
+                  <select name="provider" required>
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Google Gemini</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Priority <span class="label-hint">lebih kecil = dipakai duluan</span></label>
+                  <input type="number" name="priority" value="100" min="1" />
+                </div>
+              </div>
+              <label>API Key</label>
+              <input type="password" name="api_key" placeholder="sk-... atau AIza..." required autocomplete="new-password" />
+              <div class="form-row">
+                <div>
+                  <label>Model</label>
+                  <input type="text" name="model" placeholder="gpt-4o-mini / gemini-2.0-flash" />
+                </div>
+                <div>
+                  <label>Daily Token Limit</label>
+                  <input type="number" name="daily_token_limit" value="100000" min="1000" />
+                </div>
+                <div>
+                  <label>Daily Request Limit</label>
+                  <input type="number" name="daily_request_limit" value="500" min="1" />
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary">+ Tambah Provider</button>
+            </form>
+          </div>
+        </section>
+      </div>
+
+      <div id="view-oauth-monitoring" class="hidden">
+        <header class="page-header">
+          <div>
+            <p class="page-eyebrow">Multiupload Platform</p>
+            <h2>OAuth Monitoring</h2>
+            <p class="page-desc">Pantau grant/refresh rate tiap Google OAuth App. System auto-switch ke backup saat limit habis — supaya upload tetap jalan.</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-secondary" id="btn-oauth-refresh" type="button">↻ Refresh</button>
+          </div>
+        </header>
+
+        <div id="oauth-summary-cards" class="oauth-summary-grid"></div>
+
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <h3>OAuth Apps</h3>
+            <span class="badge" id="oauth-apps-count">0 apps</span>
+          </div>
+          <div class="panel-body">
+            <div class="table-wrap">
+              <table class="oauth-table">
+                <thead>
+                  <tr>
+                    <th>App</th>
+                    <th>Status</th>
+                    <th>Token/min</th>
+                    <th>Grant Rate</th>
+                    <th>Refresh Rate</th>
+                    <th>Uploads</th>
+                    <th>Channels</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="oauth-apps-table"></tbody>
+              </table>
+            </div>
+            <p class="modal-desc oauth-table-hint">Token/min = semua panggilan ke OAuth token endpoint (grant + refresh) dalam 60 detik terakhir — limit Google ~18/menit. System auto-rotate ke backup app saat limit tercapai.</p>
+          </div>
+        </section>
+
+        <section class="panel panel-wide">
+          <div class="panel-header"><h3>Tambah Backup OAuth App</h3></div>
+          <div class="panel-body">
+            <p class="modal-desc">Buat OAuth Client ID baru di Google Cloud project berbeda. Redirect URI harus sama dengan primary app.</p>
+            <form id="form-oauth-backup">
+              <div class="form-row">
+                <div>
+                  <label>Label</label>
+                  <input type="text" name="label" placeholder="Backup App B" required />
+                </div>
+                <div>
+                  <label>Priority <span class="label-hint">lebih kecil = dipakai duluan</span></label>
+                  <input type="number" name="priority" value="200" min="1" />
+                </div>
+              </div>
+              <label>Client ID</label>
+              <input type="text" name="client_id" placeholder="xxxx.apps.googleusercontent.com" required autocomplete="off" />
+              <label>Client Secret</label>
+              <input type="password" name="client_secret" placeholder="••••••••" required autocomplete="new-password" />
+              <label>Redirect URI</label>
+              <input type="text" name="redirect_uri" placeholder="http://localhost:8080/api/youtube/oauth/callback" />
+              <div class="form-row">
+                <div>
+                  <label>Token Grant / menit</label>
+                  <input type="number" name="minute_grant_limit" value="18" min="1" />
+                </div>
+                <div>
+                  <label>Daily Grant Limit</label>
+                  <input type="number" name="daily_grant_limit" value="100" min="1" />
+                </div>
+                <div>
+                  <label>Daily Refresh Limit</label>
+                  <input type="number" name="daily_refresh_limit" value="5000" min="1" />
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary">+ Tambah Backup App</button>
+            </form>
+          </div>
+        </section>
       </div>
     </main>
   </div>
@@ -291,6 +1039,6 @@
     <span id="loading-text">Processing...</span>
   </div>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=20260707-threads"></script>
 </body>
 </html>

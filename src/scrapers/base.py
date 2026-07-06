@@ -43,6 +43,26 @@ def _parse_timestamp(value: Any) -> datetime | None:
         return None
 
 
+def _parse_upload_date(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+        if len(text) == 8 and text.isdigit():
+            return datetime.strptime(text, "%Y%m%d")
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def _parse_posted_at(entry: dict) -> datetime | None:
+    return (
+        _parse_timestamp(entry.get("timestamp"))
+        or _parse_timestamp(entry.get("create_time"))
+        or _parse_upload_date(entry.get("upload_date"))
+    )
+
+
 class BaseScraper:
     platform: str = "unknown"
 
@@ -92,21 +112,37 @@ class BaseScraper:
                 "Jalankan: ./run-web.sh untuk auto-update"
             )
 
-    def scan_profile(self, username: str) -> tuple[str, list[VideoInfo]]:
+    # On rescan: only walk newest entries until we hit videos already in DB.
+    INCREMENTAL_PLAYLIST_LIMIT = 60
+    STOP_AFTER_CONSECUTIVE_KNOWN = 5
+
+    def scan_profile(
+        self,
+        username: str,
+        known_video_ids: set[str] | None = None,
+    ) -> tuple[str, list[VideoInfo]]:
         self._check_runtime()
         username = self.normalize_username(username)
         profile_url = self.build_profile_url(username)
 
-        with yt_dlp.YoutubeDL(self._base_opts()) as ydl:
+        opts = self._base_opts()
+        incremental = bool(known_video_ids)
+        if incremental:
+            opts["lazy_playlist"] = True
+            opts["playlistend"] = self.INCREMENTAL_PLAYLIST_LIMIT
+
+        with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(profile_url, download=False)
 
         entries = (info or {}).get("entries") or []
-        if not entries:
+        if not entries and not incremental:
             raise ValueError(
                 f"Tidak bisa mengakses profil: {profile_url}. "
                 "Coba lagi nanti (rate limit) atau gunakan --cookies cookies.txt"
             )
+
         videos: list[VideoInfo] = []
+        consecutive_known = 0
 
         for entry in entries:
             if not entry:
@@ -114,9 +150,18 @@ class BaseScraper:
             url = entry.get("url") or entry.get("webpage_url") or ""
             if not url:
                 continue
+
+            video_id = self.extract_video_id(entry, url)
+            if incremental and video_id in known_video_ids:
+                consecutive_known += 1
+                if consecutive_known >= self.STOP_AFTER_CONSECUTIVE_KNOWN:
+                    break
+                continue
+
+            consecutive_known = 0
             videos.append(
                 VideoInfo(
-                    platform_video_id=self.extract_video_id(entry, url),
+                    platform_video_id=video_id,
                     url=url,
                     title=entry.get("title"),
                     description=entry.get("description"),
@@ -124,8 +169,14 @@ class BaseScraper:
                     likes=_safe_int(entry.get("like_count")),
                     comments=_safe_int(entry.get("comment_count")),
                     shares=_safe_int(entry.get("repost_count")),
-                    posted_at=_parse_timestamp(entry.get("timestamp")),
+                    posted_at=_parse_posted_at(entry),
                 )
+            )
+
+        if not videos and not incremental:
+            raise ValueError(
+                f"Tidak bisa mengakses profil: {profile_url}. "
+                "Coba lagi nanti (rate limit) atau gunakan --cookies cookies.txt"
             )
 
         return profile_url, videos
@@ -150,5 +201,5 @@ class BaseScraper:
             likes=_safe_int(entry.get("like_count")),
             comments=_safe_int(entry.get("comment_count")),
             shares=_safe_int(entry.get("repost_count")),
-            posted_at=_parse_timestamp(entry.get("timestamp")),
+            posted_at=_parse_posted_at(entry),
         )
