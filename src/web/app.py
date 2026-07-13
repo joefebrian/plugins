@@ -95,6 +95,8 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in ("true", "1", "ye
 
 PUBLIC_PATHS = frozenset({
     "/login.html",
+    "/style.css",
+    "/app.js",
     "/api/auth/login",
     "/api/auth/me",
     "/api/health",

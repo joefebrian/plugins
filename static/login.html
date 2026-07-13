@@ -17,27 +17,95 @@
   </script>
 </head>
 <body class="auth-page">
-  <div class="auth-theme-wrap">
-    <button type="button" class="theme-toggle" id="btn-theme-toggle" aria-label="Ganti tema">
+  <div class="auth-bg" aria-hidden="true"></div>
+
+  <header class="auth-topbar">
+    <div class="auth-brand-mini">
+      <div class="auth-logo">AV</div>
+      <span>Affiliate Video</span>
+    </div>
+    <button type="button" class="theme-toggle auth-theme-btn" id="btn-theme-toggle" aria-label="Ganti tema">
       <i data-lucide="sun" class="icon-light"></i>
       <i data-lucide="moon" class="icon-dark"></i>
       <span id="theme-toggle-label">Light mode</span>
     </button>
-  </div>
-  <div class="auth-card">
-    <div class="auth-logo">AV</div>
-    <h1>Affiliate Video Tool</h1>
-    <p class="auth-subtitle">Masuk untuk melanjutkan</p>
-    <form id="login-form">
-      <label>Username</label>
-      <input type="text" name="username" autocomplete="username" required autofocus />
-      <label>Password</label>
-      <input type="password" name="password" autocomplete="current-password" required />
-      <button type="submit" id="btn-login">Masuk</button>
-      <div class="auth-error" id="error"></div>
-    </form>
-    <p class="auth-hint">Ganti password default di file <code>.env</code></p>
-  </div>
+  </header>
+
+  <main class="auth-layout">
+    <section class="auth-showcase">
+      <div class="auth-showcase-inner">
+        <p class="auth-eyebrow">Multi-platform automation</p>
+        <h2 class="auth-headline">Satu dashboard untuk<br />track & upload video.</h2>
+        <p class="auth-lead">Scan konten TikTok & Instagram, lalu distribusikan ke YouTube, Facebook, dan Threads — dengan jadwal otomatis.</p>
+
+        <ul class="auth-features">
+          <li>
+            <span class="auth-feature-icon"><i data-lucide="scan-search"></i></span>
+            <span>Scan profil & tracking GMV</span>
+          </li>
+          <li>
+            <span class="auth-feature-icon"><i data-lucide="upload-cloud"></i></span>
+            <span>Bulk upload multi-platform</span>
+          </li>
+          <li>
+            <span class="auth-feature-icon"><i data-lucide="calendar-clock"></i></span>
+            <span>Jadwal tayang & auto-post</span>
+          </li>
+        </ul>
+
+        <div class="auth-platforms">
+          <span class="auth-platform-pill"><i data-lucide="music-2"></i> TikTok</span>
+          <span class="auth-platform-pill"><i data-lucide="youtube"></i> YouTube</span>
+          <span class="auth-platform-pill"><i data-lucide="facebook"></i> Facebook</span>
+          <span class="auth-platform-pill"><i data-lucide="at-sign"></i> Threads</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="auth-form-panel">
+      <div class="auth-card">
+        <div class="auth-card-header">
+          <h1>Selamat datang</h1>
+          <p class="auth-subtitle">Masuk untuk melanjutkan ke dashboard</p>
+        </div>
+
+        <form id="login-form" novalidate>
+          <div class="auth-field">
+            <label for="username">Username</label>
+            <div class="auth-input-wrap">
+              <span class="auth-input-icon"><i data-lucide="user"></i></span>
+              <input type="text" id="username" name="username" placeholder="admin" autocomplete="username" required autofocus />
+            </div>
+          </div>
+
+          <div class="auth-field">
+            <label for="password">Password</label>
+            <div class="auth-input-wrap">
+              <span class="auth-input-icon"><i data-lucide="lock"></i></span>
+              <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="current-password" required />
+              <button type="button" class="auth-input-action" id="btn-toggle-password" aria-label="Tampilkan password">
+                <i data-lucide="eye" class="icon-show"></i>
+                <i data-lucide="eye-off" class="icon-hide"></i>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block auth-submit" id="btn-login">
+            <span class="auth-submit-text">Masuk</span>
+            <i data-lucide="arrow-right" class="auth-submit-icon"></i>
+          </button>
+
+          <div class="auth-error" id="error" role="alert"></div>
+        </form>
+
+        <div class="auth-footer-hint">
+          <i data-lucide="shield-check"></i>
+          <span>Ganti password default di <code>.env</code> sebelum expose ke internet.</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
   <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
   <script>
     const THEME_KEY = 'av-theme';
@@ -53,15 +121,29 @@
       if (label) label.textContent = theme === 'dark' ? 'Dark mode' : 'Light mode';
     }
 
+    function refreshIcons() {
+      if (window.lucide) lucide.createIcons();
+    }
+
     document.getElementById('btn-theme-toggle').onclick = () => {
       setTheme(getTheme() === 'dark' ? 'light' : 'dark');
     };
     setTheme(getTheme());
-    if (window.lucide) lucide.createIcons();
+    refreshIcons();
+
+    const pwdInput = document.getElementById('password');
+    const pwdToggle = document.getElementById('btn-toggle-password');
+    pwdToggle.onclick = () => {
+      const show = pwdInput.type === 'password';
+      pwdInput.type = show ? 'text' : 'password';
+      pwdToggle.classList.toggle('revealed', show);
+      pwdToggle.setAttribute('aria-label', show ? 'Sembunyikan password' : 'Tampilkan password');
+    };
 
     const form = document.getElementById('login-form');
     const error = document.getElementById('error');
     const btn = document.getElementById('btn-login');
+    const btnText = btn.querySelector('.auth-submit-text');
 
     fetch('/api/auth/me', { credentials: 'same-origin' }).then(r => r.json()).then(d => {
       if (d.authenticated) window.location.href = '/index.html';
@@ -70,8 +152,10 @@
     form.onsubmit = async (e) => {
       e.preventDefault();
       error.style.display = 'none';
+      error.textContent = '';
       btn.disabled = true;
-      btn.textContent = 'Memproses...';
+      btn.classList.add('is-loading');
+      btnText.textContent = 'Memproses...';
       const fd = new FormData(form);
       try {
         const res = await fetch('/api/auth/login', {
@@ -85,12 +169,14 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.detail || 'Login gagal');
+        btnText.textContent = 'Berhasil!';
         window.location.href = '/index.html';
       } catch (err) {
         error.textContent = err.message;
-        error.style.display = 'block';
+        error.style.display = 'flex';
         btn.disabled = false;
-        btn.textContent = 'Masuk';
+        btn.classList.remove('is-loading');
+        btnText.textContent = 'Masuk';
       }
     };
   </script>
