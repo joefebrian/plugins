@@ -84,10 +84,12 @@ from ..youtube.thumbnail import generate_video_thumbnail
 from ..youtube.uploader import bulk_upload_videos, run_ab_title_test, upload_manual_files
 from ..db.models import init_db
 from ..users import (
+    access_block_reason,
     authenticate_user,
     change_user_password,
     get_user_by_id,
     register_user,
+    subscription_info,
     user_to_dict,
 )
 from .auth_deps import get_current_user_id, get_owned_profile, load_session_user, require_admin
@@ -124,6 +126,7 @@ PUBLIC_PATHS = frozenset({
     "/api/auth/login",
     "/api/auth/signup",
     "/api/auth/me",
+    "/api/admin/users/webhooks/payment",
     "/api/health",
     "/api/youtube/oauth/callback",
     "/api/facebook/oauth/callback",
@@ -185,6 +188,20 @@ async def require_auth(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
         return RedirectResponse("/login.html", status_code=302)
+
+    user_id = request.session.get("user_id")
+    if user_id:
+        session = init_db(DB_PATH)
+        try:
+            user = get_user_by_id(session, int(user_id))
+            blocked = access_block_reason(user) if user else "Sesi tidak valid"
+            if user and blocked:
+                request.session.clear()
+                if path.startswith("/api/"):
+                    return JSONResponse(status_code=402, content={"detail": blocked})
+                return RedirectResponse("/login.html?expired=1", status_code=302)
+        finally:
+            session.close()
 
     return await call_next(request)
 
@@ -485,6 +502,10 @@ async def auth_me(request: Request, session: Session = Depends(get_session)):
     user = load_session_user(session, request)
     if not user:
         return {"authenticated": False}
+    blocked = access_block_reason(user)
+    if blocked:
+        request.session.clear()
+        return {"authenticated": False, "expired": True, "message": blocked}
     return {
         "authenticated": True,
         "username": user.username,
@@ -493,6 +514,7 @@ async def auth_me(request: Request, session: Session = Depends(get_session)):
         "user_id": user.id,
         "is_admin": user.role == "admin",
         "status": user.status,
+        "subscription": subscription_info(user),
     }
 
 

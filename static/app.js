@@ -799,6 +799,42 @@ function fmtUserStatus(status) {
   return map[status] || status;
 }
 
+function fmtSubscriptionExpiry(sub) {
+  if (!sub) return '—';
+  if (!sub.expires_at) return sub.plan === 'lifetime' ? 'Lifetime' : 'Tidak di-set';
+  const d = new Date(sub.expires_at);
+  const label = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  if (sub.is_expired) return `${label} (expired)`;
+  if (sub.days_left != null && sub.days_left <= 14) return `${label} (${sub.days_left} hari)`;
+  return label;
+}
+
+function renderSubscriptionBanner(me) {
+  const el = $('#subscription-banner');
+  if (!el || !me || me.is_admin || !me.subscription) {
+    if (el) el.classList.add('hidden');
+    return;
+  }
+  const sub = me.subscription;
+  el.classList.remove('hidden', 'danger', 'ok');
+  if (sub.is_expired) {
+    el.classList.add('danger');
+    el.textContent = 'Langganan kedaluwarsa. Hubungi admin untuk perpanjang akses.';
+    return;
+  }
+  if (sub.expires_at && sub.days_left != null && sub.days_left <= 7) {
+    el.classList.add('danger');
+    el.textContent = `Langganan berakhir ${fmtSubscriptionExpiry(sub)}. Segera perpanjang.`;
+    return;
+  }
+  if (sub.expires_at) {
+    el.classList.add('ok');
+    el.textContent = `Langganan aktif sampai ${fmtSubscriptionExpiry(sub)} (paket: ${sub.plan}).`;
+    return;
+  }
+  el.classList.add('hidden');
+}
+
 async function loadAdminUsers() {
   const section = $('#admin-users-section');
   const tbody = $('#admin-users-table');
@@ -814,16 +850,22 @@ async function loadAdminUsers() {
     tbody.innerHTML = users.map((u) => {
       const created = u.created_at ? new Date(u.created_at).toLocaleDateString('id-ID') : '-';
       const statusClass = `user-status-${u.status}`;
+      const sub = u.subscription || {};
       let actions = '<span class="text-muted">—</span>';
       if (u.status === 'pending') {
         actions = `
           <button type="button" class="btn btn-sm btn-primary" data-approve-user="${u.id}">Setujui</button>
           <button type="button" class="btn btn-sm btn-ghost" data-reject-user="${u.id}">Tolak</button>`;
+      } else if (u.role !== 'admin' && u.status === 'approved') {
+        actions = `
+          <button type="button" class="btn btn-sm btn-secondary" data-extend-user="${u.id}">+ Hari</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-set-expiry="${u.id}">Set tanggal</button>`;
       }
       return `<tr>
         <td><strong>@${u.username}</strong>${u.role === 'admin' ? ' <span class="badge">admin</span>' : ''}</td>
         <td>${u.display_name || u.username}</td>
         <td class="${statusClass}">${fmtUserStatus(u.status)}</td>
+        <td>${u.role === 'admin' ? '∞' : fmtSubscriptionExpiry(sub)}</td>
         <td>${created}</td>
         <td class="oauth-actions">${actions}</td>
       </tr>`;
@@ -831,9 +873,51 @@ async function loadAdminUsers() {
 
     tbody.querySelectorAll('[data-approve-user]').forEach((btn) => {
       btn.onclick = async () => {
+        const daysRaw = prompt('Masa aktif trial (hari):', '30');
+        if (daysRaw === null) return;
+        const trialDays = Math.max(1, parseInt(daysRaw, 10) || 30);
         try {
-          await api(`/admin/users/${btn.dataset.approveUser}/approve`, { method: 'POST' });
-          showToast('User disetujui ✓');
+          await api(`/admin/users/${btn.dataset.approveUser}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trial_days: trialDays, plan: 'trial' }),
+          });
+          showToast(`User disetujui ✓ (${trialDays} hari)`);
+          loadAdminUsers();
+        } catch (e) {
+          showToast(e.message, 'error');
+        }
+      };
+    });
+    tbody.querySelectorAll('[data-extend-user]').forEach((btn) => {
+      btn.onclick = async () => {
+        const daysRaw = prompt('Perpanjang berapa hari?', '30');
+        if (daysRaw === null) return;
+        const extendDays = Math.max(1, parseInt(daysRaw, 10) || 30);
+        try {
+          await api(`/admin/users/${btn.dataset.extendUser}/subscription`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ extend_days: extendDays, plan: 'monthly' }),
+          });
+          showToast(`Langganan +${extendDays} hari ✓`);
+          loadAdminUsers();
+        } catch (e) {
+          showToast(e.message, 'error');
+        }
+      };
+    });
+    tbody.querySelectorAll('[data-set-expiry]').forEach((btn) => {
+      btn.onclick = async () => {
+        const dateRaw = prompt('Tanggal expired (YYYY-MM-DD):', '');
+        if (!dateRaw) return;
+        try {
+          await api(`/admin/users/${btn.dataset.setExpiry}/subscription`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expires_at: dateRaw.trim() }),
+          });
+          showToast('Tanggal langganan diupdate ✓');
           loadAdminUsers();
         } catch (e) {
           showToast(e.message, 'error');
@@ -2335,9 +2419,14 @@ $('#btn-logout').onclick = async () => {
       return;
     }
     currentUser = me;
+    renderSubscriptionBanner(me);
     const settingsLine = $('#settings-user-line');
     if (settingsLine) {
-      settingsLine.textContent = `Login sebagai @${me.username}${me.is_admin ? ' (admin)' : ''} — data profil terisolasi per akun.`;
+      const sub = me.subscription;
+      const subHint = sub?.expires_at && !me.is_admin
+        ? ` · langganan sampai ${fmtSubscriptionExpiry(sub)}`
+        : '';
+      settingsLine.textContent = `Login sebagai @${me.username}${me.is_admin ? ' (admin)' : ''}${subHint} — data profil terisolasi per akun.`;
     }
     if (me.is_admin) await loadAdminUsers();
     const ytParams = new URLSearchParams(window.location.search);

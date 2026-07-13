@@ -36,6 +36,9 @@ class User(Base):
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     approved_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     rejected_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    plan: Mapped[str] = mapped_column(String(32), default="trial")  # trial | monthly | yearly | lifetime
+    payment_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
     profiles: Mapped[List["Profile"]] = relationship("Profile", back_populates="owner")
 
@@ -631,6 +634,9 @@ def _migrate_users_tables(engine, tables: set[str]) -> None:
     _add_col("facebook_pages", "user_id", "INTEGER")
     _add_col("threads_accounts", "user_id", "INTEGER")
     _add_col("ai_provider_config", "user_id", "INTEGER")
+    _add_col("users", "expires_at", "DATETIME")
+    _add_col("users", "plan", "VARCHAR(32) DEFAULT 'trial'")
+    _add_col("users", "payment_ref", "VARCHAR(128)")
 
     SessionLocal = sessionmaker(bind=engine)
     session = SessionLocal()

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from .deps import get_session
+
 from ..db.models import Profile, User
-from ..users import get_user_by_id
+from ..users import access_block_reason, get_user_by_id
 
 
 def session_user_id(request: Request) -> Optional[int]:
@@ -20,12 +22,21 @@ def session_is_admin(request: Request) -> bool:
     return request.session.get("role") == "admin"
 
 
-def require_session_user(request: Request) -> dict:
+def require_session_user(request: Request, session: Session | None = None) -> dict:
     if not request.session.get("authenticated"):
         raise HTTPException(401, "Unauthorized")
     user_id = session_user_id(request)
     if not user_id:
         raise HTTPException(401, "Unauthorized")
+    if session is not None:
+        user = get_user_by_id(session, user_id)
+        if not user:
+            request.session.clear()
+            raise HTTPException(401, "Unauthorized")
+        blocked = access_block_reason(user)
+        if blocked:
+            request.session.clear()
+            raise HTTPException(402, blocked)
     return {
         "user_id": user_id,
         "username": request.session.get("username"),
@@ -59,5 +70,8 @@ def load_session_user(session: Session, request: Request) -> Optional[User]:
     return get_user_by_id(session, user_id)
 
 
-def get_current_user_id(request: Request) -> int:
-    return require_session_user(request)["user_id"]
+def get_current_user_id(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> int:
+    return require_session_user(request, session)["user_id"]

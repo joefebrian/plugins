@@ -768,6 +768,7 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
                     <th>Username</th>
                     <th>Nama</th>
                     <th>Status</th>
+                    <th>Berlaku sampai</th>
                     <th>Daftar</th>
                     <th>Aksi</th>
                   </tr>
@@ -784,6 +785,8 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
             <p class="page-desc">Kelola API key OpenAI &amp; Gemini. System auto-rotate ke backup saat quota/token habis.</p>
           </div>
         </header>
+
+        <div id="subscription-banner" class="subscription-banner hidden"></div>
 
         <div id="ai-summary-cards" class="oauth-summary-grid"></div>
 
@@ -1085,6 +1088,6 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
   </div>
 
   <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
-  <script src="/app.js?v=20260713-users"></script>
+  <script src="/app.js?v=20260713-subscription"></script>
 </body>
 </html>

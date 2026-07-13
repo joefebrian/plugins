@@ -147,6 +147,12 @@
     const btn = document.getElementById('btn-login');
     const btnText = btn.querySelector('.auth-submit-text');
 
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('expired') === '1') {
+      error.textContent = 'Langganan kedaluwarsa. Hubungi admin atau perpanjang pembayaran untuk login kembali.';
+      error.style.display = 'flex';
+    }
+
     fetch('/api/auth/me', { credentials: 'same-origin' }).then(r => r.json()).then(d => {
       if (d.authenticated) window.location.href = '/index.html';
     }).catch(() => {});
