@@ -475,13 +475,13 @@ function setMonitoringPlatform(platform) {
   if (tableTitle) tableTitle.textContent = monitoringPlatform === 'overview' ? 'Semua Akun' : `Akun ${label}`;
   if (desc) {
     const hints = {
-      overview: 'Ringkasan semua platform — followers, views, uploads, dan revenue per akun.',
-      youtube: 'Channel YouTube terhubung — subscribers & total views dari YouTube API.',
-      instagram: 'Profil Instagram yang di-scan — views video & revenue GMV/komisi.',
-      threads: 'Akun Threads terhubung — jumlah post/upload via tool.',
-      facebook: 'Facebook Page terhubung — followers dari Graph API.',
-      tiktok: 'Profil TikTok yang di-scan — views video & revenue GMV/komisi.',
-      twitter: 'Integrasi X / Twitter — coming soon.',
+      overview: 'Ringkasan semua akun monitoring — terpisah dari Multiupload Platform.',
+      youtube: 'Connect channel YouTube khusus monitoring. Stats live dari YouTube API.',
+      instagram: 'Tambah username Instagram untuk dipantau — scan tanpa masuk Dashboard Profil.',
+      threads: 'Connect akun Threads via OAuth — khusus monitoring.',
+      facebook: 'Connect Facebook Page via OAuth — khusus monitoring.',
+      tiktok: 'Tambah username TikTok untuk dipantau — scan tanpa masuk Dashboard Profil.',
+      twitter: 'Connect akun X via OAuth 2.0 — isi API credentials dulu.',
     };
     desc.textContent = hints[monitoringPlatform] || hints.overview;
   }
@@ -526,18 +526,16 @@ function monitoringPlatformIcon(platform) {
   return icons[platform] || platform?.slice(0, 2).toUpperCase() || '?';
 }
 
-function renderMonitoringAccountsTable(accounts, { comingSoon = false } = {}) {
+function renderMonitoringAccountsTable(accounts) {
   const tbody = $('#monitoring-accounts-table');
   const countEl = $('#monitoring-accounts-count');
-  const soonEl = $('#monitoring-coming-soon');
   if (!tbody) return;
 
-  if (soonEl) soonEl.classList.toggle('hidden', !comingSoon);
   if (countEl) countEl.textContent = `${accounts?.length || 0} akun`;
   tbody.innerHTML = '';
 
   if (!accounts?.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="modal-desc">${comingSoon ? 'Belum tersedia.' : 'Belum ada akun. Scan profil atau connect OAuth dulu.'}</td></tr>`;
+    tbody.innerHTML = '<tr><td colspan="8" class="modal-desc">Belum ada akun. Hubungkan akun di panel atas.</td></tr>';
     return;
   }
 
@@ -547,17 +545,20 @@ function renderMonitoringAccountsTable(accounts, { comingSoon = false } = {}) {
       ? `<img class="mon-avatar" src="${acc.thumbnail}" alt="" />`
       : `<div class="mon-avatar placeholder">${monitoringPlatformIcon(acc.platform)}</div>`;
     const status = acc.error
-      ? `<span class="status-badge warning" title="${acc.error}">API Error</span>`
+      ? `<span class="status-badge warning" title="${acc.error}">Error</span>`
       : acc.connected
-        ? `<span class="status-badge ok">${acc.source === 'api' ? 'Live' : 'DB'}</span>`
+        ? `<span class="status-badge ok">${acc.source === 'cache' ? 'Cached' : 'OK'}</span>`
         : `<span class="status-badge disabled">Offline</span>`;
+    const profileLink = acc.profile_url
+      ? `<a href="${acc.profile_url}" target="_blank" rel="noopener" class="mon-handle">Buka profil</a>`
+      : `<span class="mon-handle">${acc.handle || ''}</span>`;
     tr.innerHTML = `
       <td>
         <div class="mon-account">
           ${avatar}
           <div>
-            <div class="mon-name">${acc.name || '-'}</div>
-            <div class="mon-handle">${acc.handle || ''}</div>
+            <div class="mon-name">${acc.label || acc.name || '-'}</div>
+            ${profileLink}
           </div>
         </div>
       </td>
@@ -567,23 +568,180 @@ function renderMonitoringAccountsTable(accounts, { comingSoon = false } = {}) {
       <td>${fmtNum(acc.uploads)}</td>
       <td class="${acc.revenue ? 'money' : ''}">${acc.revenue != null ? fmtMoney(acc.revenue) : '-'}</td>
       <td>${status}</td>
+      <td>
+        <button class="btn btn-sm btn-ghost" data-mon-refresh="${acc.id}" type="button">↻</button>
+        <button class="btn btn-sm btn-danger" data-mon-delete="${acc.id}" type="button">✕</button>
+      </td>
     `;
     tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('[data-mon-delete]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('Hapus akun monitoring ini?')) return;
+      try {
+        await api(`/monitoring/accounts/${btn.dataset.monDelete}`, { method: 'DELETE' });
+        showToast('Akun monitoring dihapus');
+        loadMonitoringPage(monitoringPlatform);
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    };
+  });
+  tbody.querySelectorAll('[data-mon-refresh]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await api(`/monitoring/accounts/${btn.dataset.monRefresh}/refresh`, { method: 'POST' });
+        showToast('Stats diperbarui');
+        loadMonitoringPage(monitoringPlatform);
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    };
+  });
+}
+
+async function renderMonitoringConnectPanel(platform) {
+  const panel = $('#monitoring-connect-panel');
+  const body = $('#monitoring-connect-body');
+  const title = $('#monitoring-connect-title');
+  if (!panel || !body) return;
+
+  if (platform === 'overview') {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  if (title) title.textContent = `Hubungkan ${MONITORING_PLATFORM_LABELS[platform] || platform}`;
+
+  const oauthPlatforms = ['youtube', 'facebook', 'threads', 'twitter'];
+  if (oauthPlatforms.includes(platform)) {
+    let extra = '';
+    if (platform === 'twitter') {
+      let cfg = { configured: false };
+      try {
+        cfg = await api('/monitoring/twitter/config');
+      } catch (_) { /* ignore */ }
+      const redirectDefault = `${window.location.origin}/api/monitoring/twitter/oauth/callback`;
+      extra = `
+        <p class="modal-desc">Daftar app di <a href="https://developer.x.com" target="_blank" rel="noopener">developer.x.com</a> → OAuth 2.0 → redirect URI di bawah.</p>
+        <form id="form-monitoring-twitter-config" class="monitoring-connect-form">
+          <div class="form-row">
+            <div>
+              <label>Client ID</label>
+              <input type="text" name="client_id" value="${cfg.client_id || ''}" placeholder="OAuth 2.0 Client ID" />
+            </div>
+            <div>
+              <label>Client Secret</label>
+              <input type="password" name="client_secret" value="${cfg.client_secret || ''}" placeholder="Client Secret" autocomplete="new-password" />
+            </div>
+          </div>
+          <label>Redirect URI</label>
+          <input type="text" name="redirect_uri" value="${cfg.redirect_uri || redirectDefault}" />
+          <button type="submit" class="btn btn-secondary btn-sm">Simpan X API</button>
+        </form>
+        <hr style="border-color:var(--border);margin:16px 0" />
+      `;
+    }
+    body.innerHTML = `
+      ${extra}
+      <p class="modal-desc">Login OAuth untuk menarik data akun — <strong>terpisah</strong> dari koneksi Multiupload Platform.</p>
+      <button type="button" class="btn btn-primary" id="btn-monitoring-oauth-connect">+ Connect ${MONITORING_PLATFORM_LABELS[platform]}</button>
+    `;
+    $('#form-monitoring-twitter-config')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      try {
+        await api('/monitoring/twitter/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_id: form.client_id.value.trim(),
+            client_secret: form.client_secret.value,
+            redirect_uri: form.redirect_uri.value.trim(),
+          }),
+        });
+        showToast('X API credentials tersimpan');
+        renderMonitoringConnectPanel('twitter');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+    $('#btn-monitoring-oauth-connect')?.addEventListener('click', async () => {
+      try {
+        const res = await api(`/monitoring/${platform}/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        if (res.auth_url) window.location.href = res.auth_url;
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+    return;
+  }
+
+  body.innerHTML = `
+    <p class="modal-desc">Masukkan username untuk scan profil — data masuk ke monitoring saja, tidak ke Dashboard Profil.</p>
+    <form id="form-monitoring-username" class="monitoring-connect-row">
+      <div style="flex:1">
+        <label>Username ${MONITORING_PLATFORM_LABELS[platform]}</label>
+        <input type="text" name="username" placeholder="username atau paste link profil" required />
+      </div>
+      <button type="submit" class="btn btn-primary">+ Tambah Akun</button>
+    </form>
+  `;
+  $('#form-monitoring-username')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = e.target.username.value.trim();
+    if (!username) return;
+    try {
+      await api(`/monitoring/${platform}/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+      showToast(`@${username} ditambahkan ke monitoring`);
+      e.target.reset();
+      loadMonitoringPage(platform);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
   });
 }
 
 async function loadMonitoringPage(platform = monitoringPlatform) {
   setMonitoringPlatform(platform);
+  await renderMonitoringConnectPanel(platform);
   try {
     if (platform === 'overview') {
-      const data = await api('/monitoring/overview');
+      const data = await api('/monitoring/overview?live=false');
       renderMonitoringSummaryCards(data.totals);
       renderMonitoringAccountsTable(data.accounts || []);
       return;
     }
-    const data = await api(`/monitoring/${platform}`);
+    const data = await api(`/monitoring/${platform}?live=false`);
     renderMonitoringSummaryCards(data.totals);
-    renderMonitoringAccountsTable(data.accounts || [], { comingSoon: data.coming_soon });
+    renderMonitoringAccountsTable(data.accounts || []);
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function refreshMonitoringPage() {
+  const platform = monitoringPlatform;
+  try {
+    if (platform === 'overview') {
+      const data = await api('/monitoring/overview?live=true');
+      renderMonitoringSummaryCards(data.totals);
+      renderMonitoringAccountsTable(data.accounts || []);
+    } else {
+      const data = await api(`/monitoring/${platform}?live=true`);
+      renderMonitoringSummaryCards(data.totals);
+      renderMonitoringAccountsTable(data.accounts || []);
+    }
+    showToast('Stats monitoring diperbarui');
   } catch (e) {
     showToast(e.message, 'error');
   }
@@ -684,7 +842,7 @@ $('#nav-multiupload-toggle').onclick = () => {
 $('#nav-monitoring-toggle')?.addEventListener('click', () => {
   $('#nav-monitoring-toggle').closest('.nav-group').classList.toggle('open');
 });
-$('#btn-monitoring-refresh')?.addEventListener('click', () => loadMonitoringPage(monitoringPlatform));
+$('#btn-monitoring-refresh')?.addEventListener('click', () => refreshMonitoringPage());
 $('#monitoring-tabs')?.addEventListener('click', (e) => {
   const tab = e.target.closest('.monitoring-tab[data-monitoring-platform]');
   if (!tab || tab.disabled || tab.classList.contains('nav-soon')) return;
@@ -2604,12 +2762,38 @@ $('#btn-logout').onclick = async () => {
     if (me.is_admin) await loadAdminUsers();
     const ytParams = new URLSearchParams(window.location.search);
     const initView = ytParams.get('view');
+    const monPlatform = ytParams.get('platform') || 'overview';
     if (['youtube', 'facebook', 'threads', 'oauth-monitoring', 'settings', 'monitoring'].includes(initView)) {
-      const monPlatform = ytParams.get('platform') || 'overview';
       if (initView === 'monitoring') switchView('monitoring', { monitoringPlatform: monPlatform });
       else switchView(initView);
     }
-    if (ytParams.get('facebook') === 'connected') {
+
+    const monitoringOAuth = initView === 'monitoring';
+    if (monitoringOAuth && ytParams.get('youtube') === 'connected') {
+      showToast('YouTube monitoring terhubung ✓');
+      history.replaceState({}, '', `/index.html?view=monitoring&platform=${monPlatform}`);
+    } else if (monitoringOAuth && ytParams.get('youtube') === 'error') {
+      showToast(`YouTube monitoring: ${ytParams.get('msg') || 'unknown'}`, 'error');
+      history.replaceState({}, '', `/index.html?view=monitoring&platform=${monPlatform}`);
+    } else if (monitoringOAuth && ytParams.get('facebook') === 'connected') {
+      showToast(`Facebook monitoring terhubung ✓ (${ytParams.get('count') || '1'} page)`);
+      history.replaceState({}, '', `/index.html?view=monitoring&platform=${monPlatform}`);
+    } else if (monitoringOAuth && ytParams.get('facebook') === 'error') {
+      showToast(`Facebook monitoring: ${ytParams.get('msg') || 'unknown'}`, 'error');
+      history.replaceState({}, '', `/index.html?view=monitoring&platform=${monPlatform}`);
+    } else if (monitoringOAuth && ytParams.get('threads') === 'connected') {
+      showToast('Threads monitoring terhubung ✓');
+      history.replaceState({}, '', `/index.html?view=monitoring&platform=${monPlatform}`);
+    } else if (monitoringOAuth && ytParams.get('threads') === 'error') {
+      showToast(`Threads monitoring: ${ytParams.get('msg') || 'unknown'}`, 'error');
+      history.replaceState({}, '', `/index.html?view=monitoring&platform=${monPlatform}`);
+    } else if (monitoringOAuth && ytParams.get('twitter') === 'connected') {
+      showToast('X / Twitter monitoring terhubung ✓');
+      history.replaceState({}, '', `/index.html?view=monitoring&platform=${monPlatform}`);
+    } else if (monitoringOAuth && ytParams.get('twitter') === 'error') {
+      showToast(`X monitoring: ${ytParams.get('msg') || 'unknown'}`, 'error');
+      history.replaceState({}, '', `/index.html?view=monitoring&platform=${monPlatform}`);
+    } else if (ytParams.get('facebook') === 'connected') {
       switchView('facebook');
       const count = ytParams.get('count') || '1';
       showToast(`Facebook Page berhasil terhubung ✓ (${count} page)`);
@@ -2618,8 +2802,7 @@ $('#btn-logout').onclick = async () => {
       switchView('facebook');
       showToast(`Facebook error: ${ytParams.get('msg') || 'unknown'}`, 'error');
       history.replaceState({}, '', '/index.html?view=facebook');
-    }
-    if (ytParams.get('threads') === 'connected') {
+    } else if (ytParams.get('threads') === 'connected') {
       switchView('threads');
       showToast('Threads akun berhasil terhubung ✓');
       history.replaceState({}, '', '/index.html?view=threads');
@@ -2627,8 +2810,7 @@ $('#btn-logout').onclick = async () => {
       switchView('threads');
       showToast(`Threads error: ${ytParams.get('msg') || 'unknown'}`, 'error');
       history.replaceState({}, '', '/index.html?view=threads');
-    }
-    if (ytParams.get('youtube') === 'connected') {
+    } else if (ytParams.get('youtube') === 'connected') {
       switchView('youtube');
       showToast('YouTube channel berhasil terhubung ✓');
       history.replaceState({}, '', '/index.html?view=youtube');

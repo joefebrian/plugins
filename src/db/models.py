@@ -394,6 +394,58 @@ class AIProviderConfig(Base):
     )
 
 
+class MonitoringAccount(Base):
+    """Connected social account for Social Monitoring (isolated from Multiupload)."""
+
+    __tablename__ = "monitoring_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    label: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    handle: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    thumbnail: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    profile_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    access_token: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    refresh_token: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    oauth_app_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    followers: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    views: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    uploads_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    revenue: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    metrics_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "platform", "external_id", name="uq_monitoring_user_platform_ext"),
+    )
+
+
+class MonitoringPlatformConfig(Base):
+    """OAuth app credentials for monitoring-only platforms (e.g. X/Twitter)."""
+
+    __tablename__ = "monitoring_platform_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    platform: Mapped[str] = mapped_column(String(20), default="twitter")
+    client_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    client_secret: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    redirect_uri: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class TikTokShopConfig(Base):
     """TikTok Shop Partner API credentials (single row)."""
 
@@ -448,6 +500,7 @@ def _migrate_schema(engine) -> None:
     _migrate_threads_tables(engine, tables)
     _migrate_ai_provider_tables(engine, tables)
     _migrate_users_tables(engine, tables)
+    _migrate_monitoring_tables(engine, tables)
 
 
 def _migrate_oauth_app_columns(engine, tables: set[str]) -> None:
@@ -607,6 +660,19 @@ def _migrate_facebook_tables(engine, tables: set[str]) -> None:
             FacebookAppConfig.__table__,
             FacebookPage.__table__,
             VideoFacebookUpload.__table__,
+        ],
+    )
+
+
+def _migrate_monitoring_tables(engine, tables: set[str]) -> None:
+    needed = {"monitoring_accounts", "monitoring_platform_config"}
+    if needed.issubset(tables):
+        return
+    Base.metadata.create_all(
+        engine,
+        tables=[
+            MonitoringAccount.__table__,
+            MonitoringPlatformConfig.__table__,
         ],
     )
 

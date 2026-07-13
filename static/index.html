@@ -94,7 +94,7 @@
               <span class="nav-icon"><i data-lucide="music-2"></i></span>
               <span>TikTok</span>
             </button>
-            <button type="button" class="nav-item nav-soon" data-view="monitoring" data-monitoring-platform="twitter" disabled title="Coming soon">
+            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="twitter">
               <span class="nav-icon"><i data-lucide="twitter"></i></span>
               <span>X / Twitter</span>
             </button>
@@ -914,8 +914,16 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
           <button type="button" class="monitoring-tab" data-monitoring-platform="threads">Threads</button>
           <button type="button" class="monitoring-tab" data-monitoring-platform="facebook">Facebook</button>
           <button type="button" class="monitoring-tab" data-monitoring-platform="tiktok">TikTok</button>
-          <button type="button" class="monitoring-tab nav-soon" data-monitoring-platform="twitter" disabled title="Coming soon">X</button>
+          <button type="button" class="monitoring-tab" data-monitoring-platform="twitter">X</button>
         </div>
+
+        <section class="panel panel-wide hidden" id="monitoring-connect-panel">
+          <div class="panel-header">
+            <h3 id="monitoring-connect-title">Hubungkan Akun</h3>
+            <span class="badge badge-muted">Terpisah dari Multiupload</span>
+          </div>
+          <div class="panel-body" id="monitoring-connect-body"></div>
+        </section>
 
         <div id="monitoring-summary-cards" class="oauth-summary-grid"></div>
 
@@ -925,9 +933,6 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
             <span class="badge" id="monitoring-accounts-count">0 akun</span>
           </div>
           <div class="panel-body">
-            <div id="monitoring-coming-soon" class="hidden modal-desc" style="margin-bottom:12px">
-              Integrasi X / Twitter belum tersedia — fitur ini akan datang di update berikutnya.
-            </div>
             <div class="table-wrap">
               <table class="monitoring-table">
                 <thead>
@@ -939,13 +944,14 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
                     <th>Uploads</th>
                     <th>Revenue</th>
                     <th>Status</th>
+                    <th>Aksi</th>
                   </tr>
                 </thead>
                 <tbody id="monitoring-accounts-table"></tbody>
               </table>
             </div>
             <p class="modal-desc oauth-table-hint" id="monitoring-table-hint">
-              Revenue dihitung dari GMV + komisi (TikTok/Instagram). YouTube/Facebook/Threads mengambil stats live dari API saat Refresh.
+              Koneksi akun dilakukan di sini — tidak pakai akun Multiupload. Data terisolasi per user login. Klik Refresh untuk tarik stats terbaru.
             </p>
           </div>
         </section>

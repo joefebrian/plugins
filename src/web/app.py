@@ -132,6 +132,10 @@ PUBLIC_PATHS = frozenset({
     "/api/youtube/oauth/callback",
     "/api/facebook/oauth/callback",
     "/api/threads/oauth/callback",
+    "/api/monitoring/youtube/oauth/callback",
+    "/api/monitoring/facebook/oauth/callback",
+    "/api/monitoring/threads/oauth/callback",
+    "/api/monitoring/twitter/oauth/callback",
 })
 
 app.include_router(facebook_router)
