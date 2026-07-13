@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from ...ai.quota import (
     monitoring_overview,
     provider_monitoring_dict,
 )
+from ..auth_deps import get_current_user_id
 from ..deps import get_session
 
 router = APIRouter(prefix="/api/settings/ai", tags=["settings-ai"])
@@ -46,22 +47,33 @@ class AIProviderUpdateRequest(BaseModel):
 
 
 @router.get("/monitoring")
-def api_ai_monitoring(session: Session = Depends(get_session)):
-    seed_from_env(session)
-    return monitoring_overview(session)
+def api_ai_monitoring(
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    seed_from_env(session, user_id=user_id)
+    return monitoring_overview(session, user_id=user_id)
 
 
 @router.get("/providers")
-def api_list_ai_providers(session: Session = Depends(get_session)):
-    seed_from_env(session)
-    return [provider_monitoring_dict(c) for c in list_providers(session)]
+def api_list_ai_providers(
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    seed_from_env(session, user_id=user_id)
+    return [provider_monitoring_dict(c) for c in list_providers(session, user_id=user_id)]
 
 
 @router.post("/providers")
-def api_create_ai_provider(req: AIProviderRequest, session: Session = Depends(get_session)):
+def api_create_ai_provider(
+    req: AIProviderRequest,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
     if not req.api_key:
         raise HTTPException(400, "API Key wajib diisi")
     data = req.model_dump()
+    data["user_id"] = user_id
     if not data.get("model"):
         data["model"] = DEFAULT_MODELS.get(req.provider, "gpt-4o-mini")
     try:

@@ -22,10 +22,29 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), default="user")  # admin | user
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | approved | rejected
+    display_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    approved_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    rejected_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    profiles: Mapped[List["Profile"]] = relationship("Profile", back_populates="owner")
+
+
 class Profile(Base):
     __tablename__ = "profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     platform: Mapped[str] = mapped_column(String(20), nullable=False)  # tiktok | instagram
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -33,9 +52,12 @@ class Profile(Base):
     last_scanned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    owner: Mapped[Optional["User"]] = relationship("User", back_populates="profiles")
     videos: Mapped[List["Video"]] = relationship("Video", back_populates="profile")
 
-    __table_args__ = (UniqueConstraint("platform", "username", name="uq_platform_username"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "platform", "username", name="uq_user_platform_username"),
+    )
 
 
 class Video(Base):
@@ -120,6 +142,7 @@ class YouTubeChannel(Base):
     __tablename__ = "youtube_channels"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     oauth_app_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("youtube_app_config.id"), nullable=True
     )
@@ -196,11 +219,12 @@ class FacebookPage(Base):
     __tablename__ = "facebook_pages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     app_config_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("facebook_app_config.id"), nullable=True
     )
     label: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    page_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    page_id: Mapped[str] = mapped_column(String(64), nullable=False)
     page_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     page_thumbnail: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     page_access_token: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
@@ -219,6 +243,10 @@ class FacebookPage(Base):
     )
     uploads: Mapped[List["VideoFacebookUpload"]] = relationship(
         "VideoFacebookUpload", back_populates="facebook_page"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "page_id", name="uq_user_facebook_page"),
     )
 
 
@@ -250,11 +278,12 @@ class ThreadsAccount(Base):
     __tablename__ = "threads_accounts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     app_config_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("facebook_app_config.id"), nullable=True
     )
     label: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    threads_user_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    threads_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     username: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     profile_picture: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     access_token: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
@@ -275,6 +304,10 @@ class ThreadsAccount(Base):
     )
     autopost: Mapped[Optional["ThreadsAutoPostConfig"]] = relationship(
         "ThreadsAutoPostConfig", back_populates="threads_account", uselist=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "threads_user_id", name="uq_user_threads_account"),
     )
 
 
@@ -338,6 +371,7 @@ class AIProviderConfig(Base):
     __tablename__ = "ai_provider_config"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     label: Mapped[str] = mapped_column(String(128), default="Primary AI")
     provider: Mapped[str] = mapped_column(String(32), default="openai")  # openai | gemini
     api_key: Mapped[str] = mapped_column(String(512), nullable=False, default="")
@@ -410,6 +444,7 @@ def _migrate_schema(engine) -> None:
     _migrate_facebook_tables(engine, tables)
     _migrate_threads_tables(engine, tables)
     _migrate_ai_provider_tables(engine, tables)
+    _migrate_users_tables(engine, tables)
 
 
 def _migrate_oauth_app_columns(engine, tables: set[str]) -> None:
@@ -571,6 +606,104 @@ def _migrate_facebook_tables(engine, tables: set[str]) -> None:
             VideoFacebookUpload.__table__,
         ],
     )
+
+
+def _migrate_users_tables(engine, tables: set[str]) -> None:
+    from sqlalchemy import inspect, text
+    from sqlalchemy.orm import sessionmaker
+
+    if "users" not in tables:
+        Base.metadata.create_all(engine, tables=[User.__table__])
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+
+    def _add_col(table: str, col: str, col_type: str) -> None:
+        if table not in tables:
+            return
+        cols = {c["name"] for c in inspector.get_columns(table)}
+        if col not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+
+    _add_col("profiles", "user_id", "INTEGER")
+    _add_col("youtube_channels", "user_id", "INTEGER")
+    _add_col("facebook_pages", "user_id", "INTEGER")
+    _add_col("threads_accounts", "user_id", "INTEGER")
+    _add_col("ai_provider_config", "user_id", "INTEGER")
+
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
+    try:
+        from ..users import ensure_admin_user
+        from ..auth import AuthStore
+        from pathlib import Path as P
+
+        base_dir = P(__file__).resolve().parent.parent.parent
+        auth_store = AuthStore(base_dir / "data" / "auth.json")
+        admin = ensure_admin_user(session, auth_store)
+
+        session.query(Profile).filter(Profile.user_id.is_(None)).update(
+            {Profile.user_id: admin.id}, synchronize_session=False
+        )
+        session.query(YouTubeChannel).filter(YouTubeChannel.user_id.is_(None)).update(
+            {YouTubeChannel.user_id: admin.id}, synchronize_session=False
+        )
+        session.query(FacebookPage).filter(FacebookPage.user_id.is_(None)).update(
+            {FacebookPage.user_id: admin.id}, synchronize_session=False
+        )
+        session.query(ThreadsAccount).filter(ThreadsAccount.user_id.is_(None)).update(
+            {ThreadsAccount.user_id: admin.id}, synchronize_session=False
+        )
+        session.query(AIProviderConfig).filter(AIProviderConfig.user_id.is_(None)).update(
+            {AIProviderConfig.user_id: admin.id}, synchronize_session=False
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    if "profiles" in tables:
+        indexes = []
+        with engine.connect() as conn:
+            for row in conn.execute(text("PRAGMA index_list('profiles')")).mappings():
+                indexes.append(row["name"])
+        if "uq_user_platform_username" not in indexes:
+            with engine.begin() as conn:
+                conn.execute(text("PRAGMA foreign_keys=OFF"))
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE profiles_new (
+                            id INTEGER PRIMARY KEY,
+                            user_id INTEGER,
+                            platform VARCHAR(20) NOT NULL,
+                            username VARCHAR(255) NOT NULL,
+                            url VARCHAR(512) NOT NULL,
+                            video_count INTEGER DEFAULT 0,
+                            last_scanned_at DATETIME,
+                            created_at DATETIME,
+                            FOREIGN KEY(user_id) REFERENCES users(id),
+                            UNIQUE(user_id, platform, username)
+                        )
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO profiles_new
+                            (id, user_id, platform, username, url, video_count, last_scanned_at, created_at)
+                        SELECT id, user_id, platform, username, url, video_count, last_scanned_at, created_at
+                        FROM profiles
+                        """
+                    )
+                )
+                conn.execute(text("DROP TABLE profiles"))
+                conn.execute(text("ALTER TABLE profiles_new RENAME TO profiles"))
+                conn.execute(text("PRAGMA foreign_keys=ON"))
 
 
 def init_db(db_path: Path):

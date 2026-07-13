@@ -145,8 +145,12 @@ class VideoDownloader:
         video: Video,
         platform: str,
         username: str,
+        user_id: int | None = None,
     ) -> Path:
-        target_dir = self.download_dir / platform / username
+        if user_id:
+            target_dir = self.download_dir / str(user_id) / platform / username
+        else:
+            target_dir = self.download_dir / platform / username
         target_dir.mkdir(parents=True, exist_ok=True)
 
         # Re-download if existing file is invalid (e.g. old MP3)

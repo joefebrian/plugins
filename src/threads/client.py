@@ -86,10 +86,14 @@ def _cleanup_oauth_states() -> None:
         _pending_oauth_states.pop(k, None)
 
 
-def create_oauth_state(label: str = "") -> str:
+def create_oauth_state(label: str = "", user_id: int | None = None) -> str:
     _cleanup_oauth_states()
     state = secrets.token_urlsafe(32)
-    _pending_oauth_states[state] = {"created_at": time.time(), "label": label.strip()}
+    _pending_oauth_states[state] = {
+        "created_at": time.time(),
+        "label": label.strip(),
+        "user_id": user_id,
+    }
     return state
 
 
@@ -135,10 +139,13 @@ def create_or_update_account(
     token_expires_at: Optional[datetime],
     profile_picture: Optional[str] = None,
     label: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> ThreadsAccount:
     acc = session.query(ThreadsAccount).filter_by(threads_user_id=threads_user_id).first()
+    if acc and user_id is not None and acc.user_id not in (None, user_id):
+        acc = None
     if not acc:
-        acc = ThreadsAccount(threads_user_id=threads_user_id)
+        acc = ThreadsAccount(threads_user_id=threads_user_id, user_id=user_id)
         session.add(acc)
 
     acc.app_config_id = app_config_id
@@ -150,6 +157,8 @@ def create_or_update_account(
         acc.label = label
     elif username and not acc.label:
         acc.label = f"@{username}"
+    if user_id is not None:
+        acc.user_id = user_id
     acc.is_active = True
     acc.updated_at = datetime.utcnow()
     session.flush()
@@ -163,13 +172,11 @@ def create_or_update_account(
     return acc
 
 
-def list_accounts(session: Session) -> list[ThreadsAccount]:
-    return (
-        session.query(ThreadsAccount)
-        .filter_by(is_active=True)
-        .order_by(ThreadsAccount.username.asc(), ThreadsAccount.id.asc())
-        .all()
-    )
+def list_accounts(session: Session, user_id: int | None = None) -> list[ThreadsAccount]:
+    q = session.query(ThreadsAccount).filter_by(is_active=True)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+    return q.order_by(ThreadsAccount.username.asc(), ThreadsAccount.id.asc()).all()
 
 
 def get_account(session: Session, account_id: int) -> Optional[ThreadsAccount]:

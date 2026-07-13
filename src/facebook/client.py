@@ -116,12 +116,13 @@ def _cleanup_oauth_states() -> None:
         _pending_oauth_states.pop(key, None)
 
 
-def create_oauth_state(label: str = "") -> str:
+def create_oauth_state(label: str = "", user_id: int | None = None) -> str:
     _cleanup_oauth_states()
     state = secrets.token_urlsafe(32)
     _pending_oauth_states[state] = {
         "created_at": time.time(),
         "label": label.strip(),
+        "user_id": user_id,
     }
     return state
 
@@ -294,13 +295,11 @@ def save_app_config(session: Session, data: dict) -> FacebookAppConfig:
     return cfg
 
 
-def list_pages(session: Session) -> list[FacebookPage]:
-    return (
-        session.query(FacebookPage)
-        .filter_by(is_active=True)
-        .order_by(FacebookPage.page_name.asc(), FacebookPage.id.asc())
-        .all()
-    )
+def list_pages(session: Session, user_id: int | None = None) -> list[FacebookPage]:
+    q = session.query(FacebookPage).filter_by(is_active=True)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+    return q.order_by(FacebookPage.page_name.asc(), FacebookPage.id.asc()).all()
 
 
 def get_page(session: Session, page_db_id: int) -> Optional[FacebookPage]:
@@ -337,8 +336,11 @@ def create_or_update_page(
     token_expires_at: Optional[datetime] = None,
     label: Optional[str] = None,
     default_published: bool = True,
+    user_id: Optional[int] = None,
 ) -> FacebookPage:
     page = get_page_by_fb_id(session, page_id)
+    if page and user_id is not None and page.user_id not in (None, user_id):
+        page = None
     if page:
         page.page_name = page_name
         page.page_access_token = page_access_token
@@ -348,9 +350,12 @@ def create_or_update_page(
         page.app_config_id = app_config_id
         if label:
             page.label = label
+        if user_id is not None:
+            page.user_id = user_id
         page.is_active = True
     else:
         page = FacebookPage(
+            user_id=user_id,
             app_config_id=app_config_id,
             label=label or page_name,
             page_id=page_id,

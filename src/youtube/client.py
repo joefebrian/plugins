@@ -71,13 +71,18 @@ def _parse_token_response(payload: dict) -> dict:
     }
 
 
-def create_oauth_state(label: str = "", oauth_app_id: Optional[int] = None) -> str:
+def create_oauth_state(
+    label: str = "",
+    oauth_app_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+) -> str:
     _cleanup_oauth_states()
     state = secrets.token_urlsafe(32)
     _pending_oauth_states[state] = {
         "created_at": time.time(),
         "label": label.strip(),
         "oauth_app_id": oauth_app_id,
+        "user_id": user_id,
     }
     return state
 
@@ -396,8 +401,14 @@ def delete_oauth_app(session: Session, app_id: int) -> bool:
     return True
 
 
-def list_channels(session: Session, active_only: bool = False) -> list[YouTubeChannel]:
+def list_channels(
+    session: Session,
+    active_only: bool = False,
+    user_id: int | None = None,
+) -> list[YouTubeChannel]:
     query = session.query(YouTubeChannel).order_by(YouTubeChannel.created_at.asc())
+    if user_id is not None:
+        query = query.filter_by(user_id=user_id)
     if active_only:
         query = query.filter_by(is_active=True)
     return query.all()
@@ -547,6 +558,7 @@ def create_or_update_channel(
     channel_thumbnail: Optional[str],
     label: str = "",
     oauth_app_id: Optional[int] = None,
+    user_id: Optional[int] = None,
     default_privacy: str = "private",
     default_category: str = "22",
 ) -> YouTubeChannel:
@@ -561,9 +573,12 @@ def create_or_update_channel(
             channel.label = label
         if oauth_app_id:
             channel.oauth_app_id = oauth_app_id
+        if user_id is not None:
+            channel.user_id = user_id
         channel.is_active = True
     else:
         channel = YouTubeChannel(
+            user_id=user_id,
             oauth_app_id=oauth_app_id,
             label=label or channel_title,
             refresh_token=refresh_token,

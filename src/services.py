@@ -26,18 +26,22 @@ def get_scraper(platform: str, cookies_file: str | None = None):
 
 
 def get_or_create_profile(
-    session: Session, platform: str, username: str, url: str
+    session: Session,
+    platform: str,
+    username: str,
+    url: str,
+    user_id: int,
 ) -> Profile:
     profile = (
         session.query(Profile)
-        .filter_by(platform=platform, username=username)
+        .filter_by(user_id=user_id, platform=platform, username=username)
         .first()
     )
     if profile:
         profile.url = url
         return profile
 
-    profile = Profile(platform=platform, username=username, url=url)
+    profile = Profile(user_id=user_id, platform=platform, username=username, url=url)
     session.add(profile)
     session.commit()
     return profile
@@ -48,12 +52,15 @@ def sync_profile_videos(
     platform: str,
     username: str,
     cookies_file: str | None = None,
+    user_id: int | None = None,
 ) -> dict:
+    if user_id is None:
+        raise ValueError("user_id wajib untuk scan profil")
     scraper = get_scraper(platform, cookies_file)
     username = scraper.normalize_username(username)
     profile = (
         session.query(Profile)
-        .filter_by(platform=platform, username=username)
+        .filter_by(user_id=user_id, platform=platform, username=username)
         .first()
     )
 
@@ -66,7 +73,7 @@ def sync_profile_videos(
 
     known_ids = set(existing.keys()) if existing else None
     profile_url, discovered = scraper.scan_profile(username, known_video_ids=known_ids)
-    profile = get_or_create_profile(session, platform, username, profile_url)
+    profile = get_or_create_profile(session, platform, username, profile_url, user_id)
 
     new_count = 0
     updated_count = 0
@@ -155,12 +162,12 @@ def list_videos(
     youtube_channel_id: int | None = None,
     facebook_page_id: int | None = None,
     threads_account_id: int | None = None,
+    user_id: int | None = None,
 ) -> list[Video]:
-    profile = (
-        session.query(Profile)
-        .filter_by(platform=platform, username=username)
-        .first()
-    )
+    q = session.query(Profile).filter_by(platform=platform, username=username)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+    profile = q.first()
     if not profile:
         return []
 
@@ -286,12 +293,12 @@ def download_videos(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     apply_filters: bool = False,
+    user_id: int | None = None,
 ) -> dict:
-    profile = (
-        session.query(Profile)
-        .filter_by(platform=platform, username=username)
-        .first()
-    )
+    q = session.query(Profile).filter_by(platform=platform, username=username)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+    profile = q.first()
     if not profile:
         raise ValueError(f"Profil belum di-scan. Jalankan scan dulu: {platform}/{username}")
 
@@ -314,6 +321,7 @@ def download_videos(
             max_views=max_views,
             date_from=date_from,
             date_to=date_to,
+            user_id=user_id,
         )
         if only_pending:
             videos = [v for v in videos if not v.is_downloaded]
@@ -355,7 +363,9 @@ def download_videos(
             video.is_downloaded = False
             video.file_path = None
         try:
-            downloader.download_video(session, video, platform, username)
+            downloader.download_video(
+                session, video, platform, username, user_id=profile.user_id
+            )
             success += 1
         except Exception as e:
             failed += 1
@@ -376,12 +386,18 @@ def download_videos(
     }
 
 
-def list_profiles(session: Session) -> list[Profile]:
-    return session.query(Profile).order_by(Profile.last_scanned_at.desc().nullslast()).all()
+def list_profiles(session: Session, user_id: int | None = None) -> list[Profile]:
+    q = session.query(Profile)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+    return q.order_by(Profile.last_scanned_at.desc().nullslast()).all()
 
 
-def get_profile(session: Session, profile_id: int) -> Profile | None:
-    return session.query(Profile).filter_by(id=profile_id).first()
+def get_profile(session: Session, profile_id: int, user_id: int | None = None) -> Profile | None:
+    q = session.query(Profile).filter_by(id=profile_id)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+    return q.first()
 
 
 def get_profile_stats(session: Session, profile_id: int) -> dict:
@@ -532,9 +548,10 @@ def get_hero_videos(
     platform: str,
     username: str,
     top_n: int = 10,
+    user_id: int | None = None,
 ) -> list[Video]:
     """Return top performing videos by GMV (hero candidates for cross-platform)."""
-    videos = list_videos(session, platform, username, sort_by="gmv")
+    videos = list_videos(session, platform, username, sort_by="gmv", user_id=user_id)
     with_gmv = [v for v in videos if v.gmv and v.gmv > 0]
     if with_gmv:
         return with_gmv[:top_n]

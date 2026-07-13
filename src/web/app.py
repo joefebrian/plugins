@@ -82,6 +82,15 @@ from ..youtube.quota import (
 from ..youtube.titles import generate_title_variants
 from ..youtube.thumbnail import generate_video_thumbnail
 from ..youtube.uploader import bulk_upload_videos, run_ab_title_test, upload_manual_files
+from ..db.models import init_db
+from ..users import (
+    authenticate_user,
+    change_user_password,
+    get_user_by_id,
+    register_user,
+    user_to_dict,
+)
+from .auth_deps import get_current_user_id, get_owned_profile, load_session_user, require_admin
 from .deps import (
     BASE_DIR,
     COOKIES_DIR,
@@ -92,6 +101,7 @@ from .deps import (
     resolve_public_base_url,
 )
 from .jobs import job_manager
+from .routes.admin_users import router as admin_users_router
 from .routes.ai_settings import router as ai_settings_router
 from .routes.facebook import register_facebook_profile_routes, router as facebook_router
 from .routes.threads import register_threads_profile_routes, router as threads_router
@@ -107,9 +117,12 @@ COOKIE_SECURE = os.getenv(
 
 PUBLIC_PATHS = frozenset({
     "/login.html",
+    "/signup.html",
     "/style.css",
     "/app.js",
+    "/favicon.ico",
     "/api/auth/login",
+    "/api/auth/signup",
     "/api/auth/me",
     "/api/health",
     "/api/youtube/oauth/callback",
@@ -120,6 +133,7 @@ PUBLIC_PATHS = frozenset({
 app.include_router(facebook_router)
 app.include_router(threads_router)
 app.include_router(ai_settings_router)
+app.include_router(admin_users_router)
 register_facebook_profile_routes(app)
 register_threads_profile_routes(app)
 
@@ -139,6 +153,13 @@ class LoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class SignupRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(default="", max_length=128)
+    email: str = Field(default="", max_length=255)
 
 
 def _client_ip(request: Request) -> str:
@@ -316,11 +337,16 @@ def _cookies_path() -> Optional[str]:
     return str(path) if path.exists() else None
 
 
-def _run_scan(platform: str, username: str, cookies_file: Optional[str] = None) -> dict:
+def _run_scan(
+    platform: str,
+    username: str,
+    user_id: int,
+    cookies_file: Optional[str] = None,
+) -> dict:
     cookies_file = cookies_file or _cookies_path()
     session = init_db(DB_PATH)
     try:
-        result = sync_profile_videos(session, platform, username, cookies_file)
+        result = sync_profile_videos(session, platform, username, cookies_file, user_id=user_id)
         profile = result["profile"]
         stats = get_profile_stats(session, profile.id)
         return {
@@ -340,6 +366,7 @@ def _run_scan(platform: str, username: str, cookies_file: Optional[str] = None) 
 
 def _run_download(
     profile_id: int,
+    user_id: int,
     limit: Optional[int],
     video_ids: Optional[list[str]],
     only_pending: bool,
@@ -356,7 +383,7 @@ def _run_download(
     cookies_file = cookies_file or _cookies_path()
     session = init_db(DB_PATH)
     try:
-        profile = get_profile(session, profile_id)
+        profile = get_profile(session, profile_id, user_id=user_id)
         if not profile:
             raise ValueError("Profil tidak ditemukan")
         filter_status = None if not status or status == "all" else status
@@ -377,7 +404,46 @@ def _run_download(
             date_from=parse_date_filter(date_from),
             date_to=parse_date_filter(date_to, end_of_day=True),
             apply_filters=apply_filters,
+            user_id=user_id,
         )
+    finally:
+        session.close()
+
+
+def _set_user_session(request: Request, user) -> dict:
+    request.session.clear()
+    request.session["authenticated"] = True
+    request.session["user_id"] = user.id
+    request.session["username"] = user.username
+    request.session["role"] = user.role
+    return {
+        "ok": True,
+        "username": user.username,
+        "role": user.role,
+        "user_id": user.id,
+        "is_admin": user.role == "admin",
+    }
+
+
+@app.post("/api/auth/signup")
+async def auth_signup(req: SignupRequest):
+    session = init_db(DB_PATH)
+    try:
+        user = register_user(
+            session,
+            username=req.username,
+            password=req.password,
+            display_name=req.display_name,
+            email=req.email,
+        )
+        return {
+            "ok": True,
+            "message": "Pendaftaran berhasil. Tunggu persetujuan admin untuk login.",
+            "username": user.username,
+            "status": user.status,
+        }
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     finally:
         session.close()
 
@@ -390,12 +456,17 @@ async def auth_login(req: LoginRequest, request: Request):
         raise HTTPException(429, rate_msg)
 
     username = req.username.strip()
-    if auth_store.verify(username, req.password):
-        clear_auth_rate_limit(ip)
-        request.session.clear()
-        request.session["authenticated"] = True
-        request.session["username"] = auth_store.get_username()
-        return {"ok": True, "username": auth_store.get_username()}
+    session = init_db(DB_PATH)
+    try:
+        user, err = authenticate_user(session, username, req.password)
+        if user:
+            clear_auth_rate_limit(ip)
+            return _set_user_session(request, user)
+        if err:
+            record_failed_login(ip)
+            raise HTTPException(401, err)
+    finally:
+        session.close()
 
     record_failed_login(ip)
     raise HTTPException(401, "Username atau password salah")
@@ -408,18 +479,36 @@ async def auth_logout(request: Request):
 
 
 @app.get("/api/auth/me")
-async def auth_me(request: Request):
-    if _is_authenticated(request):
-        return {"authenticated": True, "username": request.session.get("username")}
-    return {"authenticated": False}
+async def auth_me(request: Request, session: Session = Depends(get_session)):
+    if not _is_authenticated(request):
+        return {"authenticated": False}
+    user = load_session_user(session, request)
+    if not user:
+        return {"authenticated": False}
+    return {
+        "authenticated": True,
+        "username": user.username,
+        "display_name": user.display_name or user.username,
+        "role": user.role,
+        "user_id": user.id,
+        "is_admin": user.role == "admin",
+        "status": user.status,
+    }
 
 
 @app.post("/api/auth/change-password")
-async def auth_change_password(req: ChangePasswordRequest, request: Request):
+async def auth_change_password(
+    req: ChangePasswordRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+):
     if not _is_authenticated(request):
         raise HTTPException(401, "Unauthorized")
+    user = load_session_user(session, request)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
     try:
-        auth_store.change_password(req.current_password, req.new_password)
+        change_user_password(session, user, req.current_password, req.new_password)
     except ValueError as e:
         raise HTTPException(400, str(e))
     request.session.clear()
@@ -432,8 +521,11 @@ def health():
 
 
 @app.get("/api/profiles")
-def api_list_profiles(session: Session = Depends(get_session)):
-    profiles = list_profiles(session)
+def api_list_profiles(
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    profiles = list_profiles(session, user_id=user_id)
     result = []
     for p in profiles:
         stats = get_profile_stats(session, p.id)
@@ -442,8 +534,12 @@ def api_list_profiles(session: Session = Depends(get_session)):
 
 
 @app.get("/api/profiles/{profile_id}")
-def api_get_profile(profile_id: int, session: Session = Depends(get_session)):
-    profile = get_profile(session, profile_id)
+def api_get_profile(
+    profile_id: int,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    profile = get_profile(session, profile_id, user_id=user_id)
     if not profile:
         raise HTTPException(404, "Profil tidak ditemukan")
     stats = get_profile_stats(session, profile_id)
@@ -459,9 +555,10 @@ def api_list_videos(
     max_views: Optional[int] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    user_id: int = Depends(get_current_user_id),
     session: Session = Depends(get_session),
 ):
-    profile = get_profile(session, profile_id)
+    profile = get_profile(session, profile_id, user_id=user_id)
     if not profile:
         raise HTTPException(404, "Profil tidak ditemukan")
 
@@ -476,6 +573,7 @@ def api_list_videos(
         max_views=max_views,
         date_from=parse_date_filter(date_from),
         date_to=parse_date_filter(date_to, end_of_day=True),
+        user_id=user_id,
     )
     return [video_to_dict(v) for v in videos]
 
@@ -489,9 +587,10 @@ def api_export_videos_csv(
     max_views: Optional[int] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    user_id: int = Depends(get_current_user_id),
     session: Session = Depends(get_session),
 ):
-    profile = get_profile(session, profile_id)
+    profile = get_profile(session, profile_id, user_id=user_id)
     if not profile:
         raise HTTPException(404, "Profil tidak ditemukan")
 
@@ -506,6 +605,7 @@ def api_export_videos_csv(
         max_views=max_views,
         date_from=parse_date_filter(date_from),
         date_to=parse_date_filter(date_to, end_of_day=True),
+        user_id=user_id,
     )
     filename = f"{profile.platform}_{profile.username}_videos.csv"
     return Response(
@@ -516,12 +616,17 @@ def api_export_videos_csv(
 
 
 @app.get("/api/profiles/{profile_id}/heroes")
-def api_heroes(profile_id: int, top: int = 10, session: Session = Depends(get_session)):
-    profile = get_profile(session, profile_id)
+def api_heroes(
+    profile_id: int,
+    top: int = 10,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    profile = get_profile(session, profile_id, user_id=user_id)
     if not profile:
         raise HTTPException(404, "Profil tidak ditemukan")
 
-    videos = get_hero_videos(session, profile.platform, profile.username, top)
+    videos = get_hero_videos(session, profile.platform, profile.username, top, user_id=user_id)
     has_gmv = any(v.gmv for v in videos)
     return {
         "ranked_by": "gmv" if has_gmv else "engagement",
@@ -530,7 +635,7 @@ def api_heroes(profile_id: int, top: int = 10, session: Session = Depends(get_se
 
 
 @app.post("/api/scan")
-def api_scan(req: ScanRequest):
+def api_scan(req: ScanRequest, user_id: int = Depends(get_current_user_id)):
     if req.platform not in ("tiktok", "instagram"):
         raise HTTPException(400, "Platform harus tiktok atau instagram")
 
@@ -541,19 +646,20 @@ def api_scan(req: ScanRequest):
     job = job_manager.create("scan")
     job_manager.run(
         job,
-        lambda: _run_scan(req.platform, username),
+        lambda: _run_scan(req.platform, username, user_id),
         f"Scanning @{username}...",
     )
     return job_manager.to_dict(job)
 
 
 @app.post("/api/profiles/{profile_id}/download")
-def api_download(profile_id: int, req: DownloadRequest):
+def api_download(profile_id: int, req: DownloadRequest, user_id: int = Depends(get_current_user_id)):
     job = job_manager.create("download")
     job_manager.run(
         job,
         lambda: _run_download(
             profile_id,
+            user_id,
             req.limit,
             req.video_ids,
             req.only_pending,
@@ -573,7 +679,13 @@ def api_download(profile_id: int, req: DownloadRequest):
 
 
 @app.delete("/api/profiles/{profile_id}")
-def api_delete_profile(profile_id: int, session: Session = Depends(get_session)):
+def api_delete_profile(
+    profile_id: int,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    if not get_profile(session, profile_id, user_id=user_id):
+        raise HTTPException(404, "Profil tidak ditemukan")
     try:
         result = delete_profile(session, profile_id, DOWNLOAD_DIR, delete_files=True)
     except ValueError as e:
@@ -597,8 +709,13 @@ def api_update_video_metrics(
 
 
 @app.post("/api/profiles/{profile_id}/import-gmv-text")
-def api_import_gmv_text(profile_id: int, req: GmvTextRequest, session: Session = Depends(get_session)):
-    profile = get_profile(session, profile_id)
+def api_import_gmv_text(
+    profile_id: int,
+    req: GmvTextRequest,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    profile = get_profile(session, profile_id, user_id=user_id)
     if not profile:
         raise HTTPException(404, "Profil tidak ditemukan")
     try:
@@ -608,8 +725,13 @@ def api_import_gmv_text(profile_id: int, req: GmvTextRequest, session: Session =
 
 
 @app.post("/api/profiles/{profile_id}/import-gmv")
-async def api_import_gmv(profile_id: int, file: UploadFile = File(...), session: Session = Depends(get_session)):
-    profile = get_profile(session, profile_id)
+async def api_import_gmv(
+    profile_id: int,
+    file: UploadFile = File(...),
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    profile = get_profile(session, profile_id, user_id=user_id)
     if not profile:
         raise HTTPException(404, "Profil tidak ditemukan")
 
@@ -699,7 +821,9 @@ def _run_youtube_upload(profile_id: int, req: YouTubeUploadRequest) -> dict:
 
 @app.post("/api/youtube/titles/generate")
 def api_youtube_titles_generate(
-    req: YouTubeTitleGenerateRequest, session: Session = Depends(get_session)
+    req: YouTubeTitleGenerateRequest,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
 ):
     from ..db.models import Profile, Video
 
@@ -711,7 +835,9 @@ def api_youtube_titles_generate(
         video = session.query(Video).filter_by(id=req.video_id).first()
         if not video:
             raise HTTPException(404, "Video tidak ditemukan")
-        profile = session.query(Profile).filter_by(id=video.profile_id).first()
+        profile = session.query(Profile).filter_by(id=video.profile_id, user_id=user_id).first()
+        if not profile:
+            raise HTTPException(404, "Video tidak ditemukan")
         base_title = base_title or video.title or video.platform_video_id
         keyword = keyword or base_title
         context = {
@@ -722,7 +848,7 @@ def api_youtube_titles_generate(
             "url": video.url,
         }
     elif req.profile_id:
-        profile = get_profile(session, req.profile_id)
+        profile = get_profile(session, req.profile_id, user_id=user_id)
         if not profile:
             raise HTTPException(404, "Profil tidak ditemukan")
         keyword = keyword or f"@{profile.username} tiktok"
@@ -888,8 +1014,11 @@ def api_save_youtube_app_config_legacy(
 
 
 @app.get("/api/youtube/channels")
-def api_list_youtube_channels(session: Session = Depends(get_session)):
-    channels = list_channels(session)
+def api_list_youtube_channels(
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    channels = list_channels(session, user_id=user_id)
     return [channel_to_dict(ch) for ch in channels]
 
 
@@ -897,6 +1026,7 @@ def api_list_youtube_channels(session: Session = Depends(get_session)):
 def api_youtube_oauth_start(
     request: Request,
     req: YouTubeConnectRequest = YouTubeConnectRequest(),
+    user_id: int = Depends(get_current_user_id),
     session: Session = Depends(get_session),
 ):
     rotated_from = None
@@ -934,7 +1064,7 @@ def api_youtube_oauth_start(
         app_cfg.redirect_uri = redirect_uri
         session.commit()
 
-    state = create_oauth_state(req.label or "", oauth_app_id=app_cfg.id)
+    state = create_oauth_state(req.label or "", oauth_app_id=app_cfg.id, user_id=user_id)
     auth_url = build_auth_url(app_cfg.client_id, redirect_uri, state)
     result = {
         "auth_url": auth_url,
@@ -994,6 +1124,7 @@ def api_youtube_oauth_callback(
             channel_thumbnail=channel_info.get("channel_thumbnail"),
             label=meta.get("label") or channel_info["channel_title"],
             oauth_app_id=app_cfg.id,
+            user_id=meta.get("user_id"),
         )
         persist_channel_tokens(session, channel, client, channel_info)
     except YouTubeAPIError as e:

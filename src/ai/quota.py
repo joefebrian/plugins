@@ -69,20 +69,19 @@ def get_provider_status(cfg: AIProviderConfig) -> str:
     return "ok"
 
 
-def list_providers(session: Session) -> list[AIProviderConfig]:
-    return (
-        session.query(AIProviderConfig)
-        .order_by(AIProviderConfig.priority.asc(), AIProviderConfig.id.asc())
-        .all()
-    )
+def list_providers(session: Session, user_id: int | None = None) -> list[AIProviderConfig]:
+    q = session.query(AIProviderConfig)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+    return q.order_by(AIProviderConfig.priority.asc(), AIProviderConfig.id.asc()).all()
 
 
 def get_provider(session: Session, provider_id: int) -> Optional[AIProviderConfig]:
     return session.query(AIProviderConfig).filter_by(id=provider_id).first()
 
 
-def pick_available_provider(session: Session) -> Optional[AIProviderConfig]:
-    for cfg in list_providers(session):
+def pick_available_provider(session: Session, user_id: int | None = None) -> Optional[AIProviderConfig]:
+    for cfg in list_providers(session, user_id=user_id):
         if is_provider_available(cfg):
             return cfg
     return None
@@ -146,10 +145,10 @@ def provider_monitoring_dict(cfg: AIProviderConfig) -> dict:
     }
 
 
-def monitoring_overview(session: Session) -> dict:
-    items = [provider_monitoring_dict(c) for c in list_providers(session)]
+def monitoring_overview(session: Session, user_id: int | None = None) -> dict:
+    items = [provider_monitoring_dict(c) for c in list_providers(session, user_id=user_id)]
     available = [i for i in items if i["available"]]
-    recommended = pick_available_provider(session)
+    recommended = pick_available_provider(session, user_id=user_id)
     return {
         "providers": items,
         "total_providers": len(items),

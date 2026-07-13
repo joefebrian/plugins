@@ -2,6 +2,7 @@ const API = '/api';
 const THEME_KEY = 'av-theme';
 let currentProfileId = null;
 let pollTimer = null;
+let currentUser = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -793,8 +794,76 @@ function renderAiProvidersTable(providers) {
   });
 }
 
+function fmtUserStatus(status) {
+  const map = { pending: 'Menunggu', approved: 'Disetujui', rejected: 'Ditolak' };
+  return map[status] || status;
+}
+
+async function loadAdminUsers() {
+  const section = $('#admin-users-section');
+  const tbody = $('#admin-users-table');
+  if (!section || !tbody || !currentUser?.is_admin) return;
+
+  section.classList.remove('hidden');
+  try {
+    const users = await api('/admin/users');
+    const pending = users.filter((u) => u.status === 'pending').length;
+    const badge = $('#admin-pending-count');
+    if (badge) badge.textContent = `${pending} pending`;
+
+    tbody.innerHTML = users.map((u) => {
+      const created = u.created_at ? new Date(u.created_at).toLocaleDateString('id-ID') : '-';
+      const statusClass = `user-status-${u.status}`;
+      let actions = '<span class="text-muted">—</span>';
+      if (u.status === 'pending') {
+        actions = `
+          <button type="button" class="btn btn-sm btn-primary" data-approve-user="${u.id}">Setujui</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-reject-user="${u.id}">Tolak</button>`;
+      }
+      return `<tr>
+        <td><strong>@${u.username}</strong>${u.role === 'admin' ? ' <span class="badge">admin</span>' : ''}</td>
+        <td>${u.display_name || u.username}</td>
+        <td class="${statusClass}">${fmtUserStatus(u.status)}</td>
+        <td>${created}</td>
+        <td class="oauth-actions">${actions}</td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('[data-approve-user]').forEach((btn) => {
+      btn.onclick = async () => {
+        try {
+          await api(`/admin/users/${btn.dataset.approveUser}/approve`, { method: 'POST' });
+          showToast('User disetujui ✓');
+          loadAdminUsers();
+        } catch (e) {
+          showToast(e.message, 'error');
+        }
+      };
+    });
+    tbody.querySelectorAll('[data-reject-user]').forEach((btn) => {
+      btn.onclick = async () => {
+        const reason = prompt('Alasan penolakan (opsional):') || '';
+        try {
+          await api(`/admin/users/${btn.dataset.rejectUser}/reject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason }),
+          });
+          showToast('User ditolak');
+          loadAdminUsers();
+        } catch (e) {
+          showToast(e.message, 'error');
+        }
+      };
+    });
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
 async function loadSettingsPage() {
   try {
+    await loadAdminUsers();
     const overview = await api('/settings/ai/monitoring');
     renderAiSummaryCards(overview);
     renderAiProvidersTable(overview.providers || []);
@@ -2265,6 +2334,12 @@ $('#btn-logout').onclick = async () => {
       window.location.href = '/login.html';
       return;
     }
+    currentUser = me;
+    const settingsLine = $('#settings-user-line');
+    if (settingsLine) {
+      settingsLine.textContent = `Login sebagai @${me.username}${me.is_admin ? ' (admin)' : ''} — data profil terisolasi per akun.`;
+    }
+    if (me.is_admin) await loadAdminUsers();
     const ytParams = new URLSearchParams(window.location.search);
     const initView = ytParams.get('view');
     if (['youtube', 'facebook', 'threads', 'oauth-monitoring', 'settings'].includes(initView)) switchView(initView);

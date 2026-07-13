@@ -746,11 +746,42 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
         <header class="page-header">
           <div>
             <p class="page-eyebrow">System</p>
-            <h2>Settings — AI Provider</h2>
-            <p class="page-desc">Kelola API key OpenAI &amp; Gemini. System auto-rotate ke backup saat quota/token habis. Pantau penggunaan harian di bawah.</p>
+            <h2>Settings</h2>
+            <p class="page-desc" id="settings-user-line">Kelola akun, AI provider, dan integrasi.</p>
           </div>
           <div class="page-header-actions">
             <button class="btn btn-secondary" id="btn-ai-refresh" type="button">↻ Refresh</button>
+          </div>
+        </header>
+
+        <section id="admin-users-section" class="panel panel-wide hidden">
+          <div class="panel-header">
+            <h3>Kelola Pengguna</h3>
+            <span class="badge" id="admin-pending-count">0 pending</span>
+          </div>
+          <div class="panel-body">
+            <p class="modal-desc">Setujui pendaftaran baru agar user bisa login. Setiap user punya profil &amp; data terpisah.</p>
+            <div class="table-wrap">
+              <table class="oauth-table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Nama</th>
+                    <th>Status</th>
+                    <th>Daftar</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-users-table"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <header class="page-header page-header-sub">
+          <div>
+            <h2>AI Provider</h2>
+            <p class="page-desc">Kelola API key OpenAI &amp; Gemini. System auto-rotate ke backup saat quota/token habis.</p>
           </div>
         </header>
 
@@ -1054,6 +1085,6 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
   </div>
 
   <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
-  <script src="/app.js?v=20260708-theme"></script>
+  <script src="/app.js?v=20260713-users"></script>
 </body>
 </html>

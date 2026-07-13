@@ -34,6 +34,7 @@ from ...facebook.client import (
 )
 from ...facebook.uploader import bulk_upload_videos, upload_manual_files
 from ...services import get_profile, parse_date_filter
+from ..auth_deps import get_current_user_id
 from ..deps import DB_PATH, DOWNLOAD_DIR, get_session
 from ..jobs import job_manager
 
@@ -155,14 +156,18 @@ def api_save_facebook_app_config(
 
 
 @router.get("/pages")
-def api_list_facebook_pages(session: Session = Depends(get_session)):
-    return [page_to_dict(p) for p in list_pages(session)]
+def api_list_facebook_pages(
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    return [page_to_dict(p) for p in list_pages(session, user_id=user_id)]
 
 
 @router.post("/oauth/start")
 def api_facebook_oauth_start(
     request: Request,
     req: FacebookConnectRequest = FacebookConnectRequest(),
+    user_id: int = Depends(get_current_user_id),
     session: Session = Depends(get_session),
 ):
     cfg = get_app_config(session)
@@ -174,7 +179,7 @@ def api_facebook_oauth_start(
         cfg.redirect_uri = redirect_uri
         session.commit()
 
-    state = create_oauth_state(req.label or "")
+    state = create_oauth_state(req.label or "", user_id=user_id)
     auth_url = build_auth_url(cfg.app_id, redirect_uri, state)
     return {"auth_url": auth_url}
 
@@ -231,6 +236,7 @@ def api_facebook_oauth_callback(
                 label=f"{label_prefix} {page_info['page_name']}".strip()
                 if label_prefix
                 else page_info["page_name"],
+                user_id=meta.get("user_id"),
             )
             connected += 1
 

@@ -1350,6 +1350,52 @@ tr:hover td { background: var(--row-hover); }
   font-family: ui-monospace, 'SF Mono', monospace;
 }
 
+.auth-layout-single {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.auth-alt-link {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.auth-alt-link a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-alt-link a:hover {
+  text-decoration: underline;
+}
+
+.auth-success {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--success-bg);
+  border: 1px solid rgba(5, 150, 105, 0.25);
+  border-radius: 8px;
+  color: var(--green);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.user-status-pending { color: var(--yellow); }
+.user-status-approved { color: var(--green); }
+.user-status-rejected { color: var(--red); }
+
+.page-header-sub {
+  padding: 8px 0 20px;
+}
+
+.page-header-sub h2 {
+  font-size: 1.25rem;
+  margin-bottom: 6px;
+}
+
 @media (max-width: 900px) {
   .auth-layout {
     grid-template-columns: 1fr;

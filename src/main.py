@@ -11,7 +11,15 @@ from rich.table import Table
 
 from .db.models import init_db
 from .gmv.importer import import_gmv_csv
+from .db.models import User
 from .services import download_videos, get_hero_videos, list_videos, sync_profile_videos
+
+
+def _cli_user_id(session) -> int:
+    admin = session.query(User).filter_by(role="admin").order_by(User.id.asc()).first()
+    if not admin:
+        raise click.ClickException("Admin user belum ada. Jalankan web server sekali untuk bootstrap DB.")
+    return admin.id
 
 console = Console()
 
@@ -56,7 +64,7 @@ def scan(ctx, platform, username, cookies):
     console.print(f"[bold]Scanning[/bold] {platform}/@{username}...")
 
     try:
-        result = sync_profile_videos(session, platform, username, cookies)
+        result = sync_profile_videos(session, platform, username, cookies, user_id=_cli_user_id(session))
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise SystemExit(1)
@@ -79,7 +87,8 @@ def list_cmd(ctx, platform, username, status, sort_by):
     """Tampilkan daftar video dengan status download."""
     session = ctx.obj["session"]
     filter_status = None if status == "all" else status
-    videos = list_videos(session, platform, username, filter_status, sort_by)
+    uid = _cli_user_id(session)
+    videos = list_videos(session, platform, username, filter_status, sort_by, user_id=uid)
 
     if not videos:
         console.print("[yellow]Belum ada data. Jalankan 'scan' dulu.[/yellow]")
@@ -138,6 +147,7 @@ def download(ctx, platform, username, limit, download_all, video_id, cookies, do
             only_pending=not download_all,
             video_ids=list(video_id) if video_id else None,
             quality=quality,
+            user_id=_cli_user_id(session),
         )
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")

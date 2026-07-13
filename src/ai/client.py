@@ -51,6 +51,7 @@ def save_provider(session: Session, data: dict, provider_id: Optional[int] = Non
         session.add(cfg)
 
     for key in (
+        "user_id",
         "label",
         "provider",
         "api_key",
@@ -81,11 +82,11 @@ def delete_provider(session: Session, provider_id: int) -> bool:
     return True
 
 
-def seed_from_env(session: Session) -> None:
+def seed_from_env(session: Session, user_id: int | None = None) -> None:
     """Import OPENAI_API_KEY from .env if no providers configured."""
     import os
 
-    if list_providers(session):
+    if list_providers(session, user_id=user_id):
         return
     key = os.getenv("OPENAI_API_KEY", "").strip()
     if not key:
@@ -94,6 +95,7 @@ def seed_from_env(session: Session) -> None:
     save_provider(
         session,
         {
+            "user_id": user_id,
             "label": "OpenAI (from .env)",
             "provider": "openai",
             "api_key": key,
@@ -179,11 +181,12 @@ def complete_with_failover(
     system: str,
     user: str,
     preferred_id: Optional[int] = None,
+    user_id: Optional[int] = None,
 ) -> AICompletionResult:
     """Try providers in priority order; rotate on rate limit."""
     from .quota import get_provider, is_provider_available
 
-    seed_from_env(session)
+    seed_from_env(session, user_id=user_id)
     tried: set[int] = set()
     last_error = "Tidak ada AI provider tersedia"
 
@@ -204,6 +207,8 @@ def complete_with_failover(
 
     if preferred_id:
         cfg = get_provider(session, preferred_id)
+        if cfg and user_id is not None and cfg.user_id not in (None, user_id):
+            cfg = None
         if cfg and is_provider_available(cfg):
             try:
                 return _try(cfg)
@@ -214,7 +219,7 @@ def complete_with_failover(
                 tried.add(cfg.id)
 
     while True:
-        cfg = pick_available_provider(session)
+        cfg = pick_available_provider(session, user_id=user_id)
         if not cfg or cfg.id in tried:
             break
         try:

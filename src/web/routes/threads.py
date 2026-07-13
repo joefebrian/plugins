@@ -40,6 +40,7 @@ from ...threads.client import (
 from ...threads.media import verify_public_media_token
 from ...threads.topics import TopicGenerationError, generate_topics
 from ...threads.uploader import bulk_post_videos, post_text
+from ..auth_deps import get_current_user_id
 from ..deps import DB_PATH, get_session, resolve_public_base_url
 from ..jobs import job_manager
 
@@ -112,8 +113,11 @@ def api_threads_app_config(session: Session = Depends(get_session)):
 
 
 @router.get("/accounts")
-def api_list_threads_accounts(session: Session = Depends(get_session)):
-    return [account_to_dict(a) for a in list_accounts(session)]
+def api_list_threads_accounts(
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    return [account_to_dict(a) for a in list_accounts(session, user_id=user_id)]
 
 
 @router.patch("/accounts/{account_id}")
@@ -140,6 +144,7 @@ def api_update_threads_account(
 def api_threads_oauth_start(
     request: Request,
     req: ThreadsConnectRequest = ThreadsConnectRequest(),
+    user_id: int = Depends(get_current_user_id),
     session: Session = Depends(get_session),
 ):
     cfg = get_app_config(session)
@@ -152,7 +157,7 @@ def api_threads_oauth_start(
         session.commit()
 
     threads_redirect = str(request.base_url).rstrip("/") + "/api/threads/oauth/callback"
-    state = create_oauth_state(req.label or "")
+    state = create_oauth_state(req.label or "", user_id=user_id)
     auth_url = build_auth_url(cfg.app_id, threads_redirect, state)
     return {"auth_url": auth_url}
 
@@ -195,6 +200,7 @@ def api_threads_oauth_callback(
             token_expires_at=expires,
             profile_picture=profile.get("profile_picture"),
             label=label,
+            user_id=meta.get("user_id"),
         )
         return RedirectResponse("/index.html?view=threads&threads=connected")
     except (ThreadsAPIError, FacebookAPIError) as e:
