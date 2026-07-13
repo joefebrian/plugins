@@ -274,6 +274,70 @@ h1, h2, h3, .page-header h2, .panel-header h3, #profile-title {
 .oauth-table .app-id { font-size: 11px; color: var(--text-muted); }
 .oauth-table-hint { margin-top: 12px; }
 
+.monitoring-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.monitoring-tab {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.monitoring-tab:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.monitoring-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.monitoring-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.monitoring-table th,
+.monitoring-table td { font-size: 12px; vertical-align: middle; }
+.monitoring-table .mon-account { display: flex; align-items: center; gap: 10px; min-width: 180px; }
+.monitoring-table .mon-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-hover);
+  flex-shrink: 0;
+}
+.monitoring-table .mon-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.monitoring-table .mon-name { font-weight: 600; font-size: 13px; }
+.monitoring-table .mon-handle { font-size: 11px; color: var(--text-muted); }
+.monitoring-table .platform-pill {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+}
+.monitoring-table .money { color: var(--green); font-weight: 600; }
+
 .status-badge {
   display: inline-block;
   padding: 3px 8px;

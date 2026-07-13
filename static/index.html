@@ -64,6 +64,42 @@
             </button>
           </div>
         </div>
+        <div class="nav-group open">
+          <button class="nav-group-title" id="nav-monitoring-toggle" type="button">
+            <span>Social Monitoring</span>
+            <span class="nav-chevron">▾</span>
+          </button>
+          <div class="nav-submenu" id="nav-monitoring-menu">
+            <button type="button" class="nav-item" id="nav-monitoring-overview" data-view="monitoring" data-monitoring-platform="overview">
+              <span class="nav-icon"><i data-lucide="layout-grid"></i></span>
+              <span>Overview</span>
+            </button>
+            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="youtube">
+              <span class="nav-icon"><i data-lucide="youtube"></i></span>
+              <span>YouTube</span>
+            </button>
+            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="instagram">
+              <span class="nav-icon"><i data-lucide="instagram"></i></span>
+              <span>Instagram</span>
+            </button>
+            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="threads">
+              <span class="nav-icon"><i data-lucide="at-sign"></i></span>
+              <span>Threads</span>
+            </button>
+            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="facebook">
+              <span class="nav-icon"><i data-lucide="facebook"></i></span>
+              <span>Facebook</span>
+            </button>
+            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="tiktok">
+              <span class="nav-icon"><i data-lucide="music-2"></i></span>
+              <span>TikTok</span>
+            </button>
+            <button type="button" class="nav-item nav-soon" data-view="monitoring" data-monitoring-platform="twitter" disabled title="Coming soon">
+              <span class="nav-icon"><i data-lucide="twitter"></i></span>
+              <span>X / Twitter</span>
+            </button>
+          </div>
+        </div>
         <button type="button" class="nav-item" id="nav-settings" data-view="settings">
           <span class="nav-icon"><i data-lucide="settings"></i></span>
           <span>Settings</span>
@@ -855,6 +891,62 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
               </div>
               <button type="submit" class="btn btn-primary">+ Tambah Provider</button>
             </form>
+          </div>
+        </section>
+      </div>
+
+      <div id="view-monitoring" class="hidden">
+        <header class="page-header">
+          <div>
+            <p class="page-eyebrow">Social Monitoring</p>
+            <h2 id="monitoring-page-title">Overview</h2>
+            <p class="page-desc" id="monitoring-page-desc">Pantau followers, views, uploads, dan revenue per akun — data terisolasi per user.</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-secondary" id="btn-monitoring-refresh" type="button">↻ Refresh</button>
+          </div>
+        </header>
+
+        <div class="monitoring-tabs" id="monitoring-tabs">
+          <button type="button" class="monitoring-tab active" data-monitoring-platform="overview">Overview</button>
+          <button type="button" class="monitoring-tab" data-monitoring-platform="youtube">YouTube</button>
+          <button type="button" class="monitoring-tab" data-monitoring-platform="instagram">Instagram</button>
+          <button type="button" class="monitoring-tab" data-monitoring-platform="threads">Threads</button>
+          <button type="button" class="monitoring-tab" data-monitoring-platform="facebook">Facebook</button>
+          <button type="button" class="monitoring-tab" data-monitoring-platform="tiktok">TikTok</button>
+          <button type="button" class="monitoring-tab nav-soon" data-monitoring-platform="twitter" disabled title="Coming soon">X</button>
+        </div>
+
+        <div id="monitoring-summary-cards" class="oauth-summary-grid"></div>
+
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <h3 id="monitoring-table-title">Semua Akun</h3>
+            <span class="badge" id="monitoring-accounts-count">0 akun</span>
+          </div>
+          <div class="panel-body">
+            <div id="monitoring-coming-soon" class="hidden modal-desc" style="margin-bottom:12px">
+              Integrasi X / Twitter belum tersedia — fitur ini akan datang di update berikutnya.
+            </div>
+            <div class="table-wrap">
+              <table class="monitoring-table">
+                <thead>
+                  <tr>
+                    <th>Akun</th>
+                    <th>Platform</th>
+                    <th>Followers</th>
+                    <th>Views</th>
+                    <th>Uploads</th>
+                    <th>Revenue</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="monitoring-accounts-table"></tbody>
+              </table>
+            </div>
+            <p class="modal-desc oauth-table-hint" id="monitoring-table-hint">
+              Revenue dihitung dari GMV + komisi (TikTok/Instagram). YouTube/Facebook/Threads mengambil stats live dari API saat Refresh.
+            </p>
           </div>
         </section>
       </div>

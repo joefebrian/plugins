@@ -446,14 +446,157 @@ $('#btn-import-gmv').onclick = () => { openModal('gmv'); loadTikTokShopConfig();
 
 let oauthMonitoringTimer = null;
 let aiMonitoringTimer = null;
+let socialMonitoringTimer = null;
+let monitoringPlatform = 'overview';
 
-function switchView(view) {
+const MONITORING_PLATFORM_LABELS = {
+  overview: 'Overview',
+  youtube: 'YouTube',
+  instagram: 'Instagram',
+  threads: 'Threads',
+  facebook: 'Facebook',
+  tiktok: 'TikTok',
+  twitter: 'X / Twitter',
+};
+
+function setMonitoringPlatform(platform) {
+  monitoringPlatform = platform || 'overview';
+  $$('.monitoring-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.monitoringPlatform === monitoringPlatform);
+  });
+  $$('.nav-item[data-monitoring-platform]').forEach((el) => {
+    el.classList.toggle('active', el.dataset.view === 'monitoring' && el.dataset.monitoringPlatform === monitoringPlatform);
+  });
+  const title = $('#monitoring-page-title');
+  const desc = $('#monitoring-page-desc');
+  const tableTitle = $('#monitoring-table-title');
+  const label = MONITORING_PLATFORM_LABELS[monitoringPlatform] || 'Overview';
+  if (title) title.textContent = label;
+  if (tableTitle) tableTitle.textContent = monitoringPlatform === 'overview' ? 'Semua Akun' : `Akun ${label}`;
+  if (desc) {
+    const hints = {
+      overview: 'Ringkasan semua platform — followers, views, uploads, dan revenue per akun.',
+      youtube: 'Channel YouTube terhubung — subscribers & total views dari YouTube API.',
+      instagram: 'Profil Instagram yang di-scan — views video & revenue GMV/komisi.',
+      threads: 'Akun Threads terhubung — jumlah post/upload via tool.',
+      facebook: 'Facebook Page terhubung — followers dari Graph API.',
+      tiktok: 'Profil TikTok yang di-scan — views video & revenue GMV/komisi.',
+      twitter: 'Integrasi X / Twitter — coming soon.',
+    };
+    desc.textContent = hints[monitoringPlatform] || hints.overview;
+  }
+}
+
+function renderMonitoringSummaryCards(totals) {
+  const el = $('#monitoring-summary-cards');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="oauth-summary-card">
+      <div class="osc-label">Akun</div>
+      <div class="osc-value">${fmtNum(totals?.accounts ?? 0)}</div>
+    </div>
+    <div class="oauth-summary-card">
+      <div class="osc-label">Followers</div>
+      <div class="osc-value">${fmtNum(totals?.followers)}</div>
+    </div>
+    <div class="oauth-summary-card">
+      <div class="osc-label">Views</div>
+      <div class="osc-value">${fmtNum(totals?.views)}</div>
+    </div>
+    <div class="oauth-summary-card ok">
+      <div class="osc-label">Uploads</div>
+      <div class="osc-value">${fmtNum(totals?.uploads ?? 0)}</div>
+    </div>
+    <div class="oauth-summary-card ok">
+      <div class="osc-label">Revenue</div>
+      <div class="osc-value">${totals?.revenue != null ? fmtMoney(totals.revenue) : '-'}</div>
+    </div>
+  `;
+}
+
+function monitoringPlatformIcon(platform) {
+  const icons = {
+    youtube: 'YT',
+    instagram: 'IG',
+    tiktok: 'TT',
+    facebook: 'FB',
+    threads: '@',
+    twitter: 'X',
+  };
+  return icons[platform] || platform?.slice(0, 2).toUpperCase() || '?';
+}
+
+function renderMonitoringAccountsTable(accounts, { comingSoon = false } = {}) {
+  const tbody = $('#monitoring-accounts-table');
+  const countEl = $('#monitoring-accounts-count');
+  const soonEl = $('#monitoring-coming-soon');
+  if (!tbody) return;
+
+  if (soonEl) soonEl.classList.toggle('hidden', !comingSoon);
+  if (countEl) countEl.textContent = `${accounts?.length || 0} akun`;
+  tbody.innerHTML = '';
+
+  if (!accounts?.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="modal-desc">${comingSoon ? 'Belum tersedia.' : 'Belum ada akun. Scan profil atau connect OAuth dulu.'}</td></tr>`;
+    return;
+  }
+
+  accounts.forEach((acc) => {
+    const tr = document.createElement('tr');
+    const avatar = acc.thumbnail
+      ? `<img class="mon-avatar" src="${acc.thumbnail}" alt="" />`
+      : `<div class="mon-avatar placeholder">${monitoringPlatformIcon(acc.platform)}</div>`;
+    const status = acc.error
+      ? `<span class="status-badge warning" title="${acc.error}">API Error</span>`
+      : acc.connected
+        ? `<span class="status-badge ok">${acc.source === 'api' ? 'Live' : 'DB'}</span>`
+        : `<span class="status-badge disabled">Offline</span>`;
+    tr.innerHTML = `
+      <td>
+        <div class="mon-account">
+          ${avatar}
+          <div>
+            <div class="mon-name">${acc.name || '-'}</div>
+            <div class="mon-handle">${acc.handle || ''}</div>
+          </div>
+        </div>
+      </td>
+      <td><span class="platform-pill">${acc.platform}</span></td>
+      <td>${fmtNum(acc.followers)}</td>
+      <td>${fmtNum(acc.views)}</td>
+      <td>${fmtNum(acc.uploads)}</td>
+      <td class="${acc.revenue ? 'money' : ''}">${acc.revenue != null ? fmtMoney(acc.revenue) : '-'}</td>
+      <td>${status}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadMonitoringPage(platform = monitoringPlatform) {
+  setMonitoringPlatform(platform);
+  try {
+    if (platform === 'overview') {
+      const data = await api('/monitoring/overview');
+      renderMonitoringSummaryCards(data.totals);
+      renderMonitoringAccountsTable(data.accounts || []);
+      return;
+    }
+    const data = await api(`/monitoring/${platform}`);
+    renderMonitoringSummaryCards(data.totals);
+    renderMonitoringAccountsTable(data.accounts || [], { comingSoon: data.coming_soon });
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+function switchView(view, opts = {}) {
   const views = {
     profiles: '#view-profiles',
     youtube: '#view-youtube',
     facebook: '#view-facebook',
     threads: '#view-threads',
     settings: '#view-settings',
+    monitoring: '#view-monitoring',
     'oauth-monitoring': '#view-oauth-monitoring',
   };
   if (!views[view]) return;
@@ -462,11 +605,18 @@ function switchView(view) {
     if (el) el.classList.toggle('hidden', view !== key);
   });
   $$('.nav-item[data-view]').forEach((el) => {
-    el.classList.toggle('active', el.dataset.view === view);
+    if (el.dataset.view === 'monitoring') {
+      el.classList.toggle('active', view === 'monitoring' && el.dataset.monitoringPlatform === monitoringPlatform);
+    } else {
+      el.classList.toggle('active', el.dataset.view === view);
+    }
   });
   document.querySelector('.main')?.scrollTo(0, 0);
   if (['youtube', 'facebook', 'threads', 'oauth-monitoring'].includes(view)) {
     $('#nav-multiupload-toggle')?.closest('.nav-group')?.classList.add('open');
+  }
+  if (view === 'monitoring') {
+    $('#nav-monitoring-toggle')?.closest('.nav-group')?.classList.add('open');
   }
   if (oauthMonitoringTimer) {
     clearInterval(oauthMonitoringTimer);
@@ -475,6 +625,10 @@ function switchView(view) {
   if (aiMonitoringTimer) {
     clearInterval(aiMonitoringTimer);
     aiMonitoringTimer = null;
+  }
+  if (socialMonitoringTimer) {
+    clearInterval(socialMonitoringTimer);
+    socialMonitoringTimer = null;
   }
   if (view === 'youtube') loadYouTubePage();
   if (view === 'facebook') loadFacebookPage();
@@ -487,6 +641,11 @@ function switchView(view) {
     loadOAuthMonitoringPage();
     oauthMonitoringTimer = setInterval(loadOAuthMonitoringPage, 30000);
   }
+  if (view === 'monitoring') {
+    const platform = opts.monitoringPlatform || monitoringPlatform || 'overview';
+    loadMonitoringPage(platform);
+    socialMonitoringTimer = setInterval(() => loadMonitoringPage(monitoringPlatform), 60000);
+  }
 }
 
 function initSidebarNavigation() {
@@ -497,6 +656,11 @@ function initSidebarNavigation() {
     const btn = e.target.closest('.nav-item[data-view]');
     if (!btn || btn.disabled || btn.classList.contains('nav-soon')) return;
     e.preventDefault();
+    const platform = btn.dataset.monitoringPlatform;
+    if (btn.dataset.view === 'monitoring' && platform) {
+      switchView('monitoring', { monitoringPlatform: platform });
+      return;
+    }
     switchView(btn.dataset.view);
   });
 }
@@ -517,6 +681,15 @@ $('#link-settings-threads')?.addEventListener('click', (e) => {
 $('#nav-multiupload-toggle').onclick = () => {
   $('#nav-multiupload-toggle').closest('.nav-group').classList.toggle('open');
 };
+$('#nav-monitoring-toggle')?.addEventListener('click', () => {
+  $('#nav-monitoring-toggle').closest('.nav-group').classList.toggle('open');
+});
+$('#btn-monitoring-refresh')?.addEventListener('click', () => loadMonitoringPage(monitoringPlatform));
+$('#monitoring-tabs')?.addEventListener('click', (e) => {
+  const tab = e.target.closest('.monitoring-tab[data-monitoring-platform]');
+  if (!tab || tab.disabled || tab.classList.contains('nav-soon')) return;
+  switchView('monitoring', { monitoringPlatform: tab.dataset.monitoringPlatform });
+});
 
 function quotaBarClass(pct) {
   if (pct >= 100) return 'exhausted';
@@ -2431,7 +2604,11 @@ $('#btn-logout').onclick = async () => {
     if (me.is_admin) await loadAdminUsers();
     const ytParams = new URLSearchParams(window.location.search);
     const initView = ytParams.get('view');
-    if (['youtube', 'facebook', 'threads', 'oauth-monitoring', 'settings'].includes(initView)) switchView(initView);
+    if (['youtube', 'facebook', 'threads', 'oauth-monitoring', 'settings', 'monitoring'].includes(initView)) {
+      const monPlatform = ytParams.get('platform') || 'overview';
+      if (initView === 'monitoring') switchView('monitoring', { monitoringPlatform: monPlatform });
+      else switchView(initView);
+    }
     if (ytParams.get('facebook') === 'connected') {
       switchView('facebook');
       const count = ytParams.get('count') || '1';

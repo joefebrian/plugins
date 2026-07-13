@@ -295,6 +295,17 @@ def save_app_config(session: Session, data: dict) -> FacebookAppConfig:
     return cfg
 
 
+def fetch_page_metrics(page_id: str, access_token: str) -> dict:
+    payload = _graph_get(
+        f"/{page_id}",
+        {"fields": "followers_count,fan_count", "access_token": access_token},
+    )
+    return {
+        "followers_count": payload.get("followers_count"),
+        "fan_count": payload.get("fan_count"),
+    }
+
+
 def list_pages(session: Session, user_id: int | None = None) -> list[FacebookPage]:
     q = session.query(FacebookPage).filter_by(is_active=True)
     if user_id is not None:

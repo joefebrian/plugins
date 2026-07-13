@@ -106,6 +106,7 @@ from .jobs import job_manager
 from .routes.admin_users import router as admin_users_router
 from .routes.ai_settings import router as ai_settings_router
 from .routes.facebook import register_facebook_profile_routes, router as facebook_router
+from .routes.monitoring import router as monitoring_router
 from .routes.threads import register_threads_profile_routes, router as threads_router
 
 app = FastAPI(title="Affiliate Video Tool", version="0.2.0")
@@ -137,6 +138,7 @@ app.include_router(facebook_router)
 app.include_router(threads_router)
 app.include_router(ai_settings_router)
 app.include_router(admin_users_router)
+app.include_router(monitoring_router)
 register_facebook_profile_routes(app)
 register_threads_profile_routes(app)
 

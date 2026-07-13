@@ -225,6 +225,25 @@ class YouTubeClient:
             "channel_thumbnail": thumb,
         }
 
+    def get_channel_statistics(self, channel_id: Optional[str] = None) -> dict:
+        params: dict[str, str] = {"part": "statistics,snippet"}
+        if channel_id:
+            params["id"] = channel_id
+        else:
+            params["mine"] = "true"
+        payload = self._api_get("/channels", params)
+        items = payload.get("items") or []
+        if not items:
+            raise YouTubeAPIError("Statistik channel YouTube tidak ditemukan.")
+        channel = items[0]
+        stats = channel.get("statistics") or {}
+        return {
+            "channel_id": channel.get("id"),
+            "subscribers": int(stats.get("subscriberCount") or 0),
+            "views": int(stats.get("viewCount") or 0),
+            "video_count": int(stats.get("videoCount") or 0),
+        }
+
     def upload_thumbnail(self, youtube_video_id: str, image_path: Path) -> None:
         if not image_path.exists():
             raise YouTubeAPIError(f"Thumbnail tidak ditemukan: {image_path}")
