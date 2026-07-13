@@ -40,7 +40,7 @@ from ...threads.client import (
 from ...threads.media import verify_public_media_token
 from ...threads.topics import TopicGenerationError, generate_topics
 from ...threads.uploader import bulk_post_videos, post_text
-from ..deps import DB_PATH, get_session
+from ..deps import DB_PATH, get_session, resolve_public_base_url
 from ..jobs import job_manager
 
 router = APIRouter(prefix="/api/threads", tags=["threads"])
@@ -102,7 +102,7 @@ def _default_redirect(request: Request) -> str:
 
 
 def _public_base(request: Request) -> str:
-    return os.getenv("PUBLIC_BASE_URL", str(request.base_url).rstrip("/"))
+    return resolve_public_base_url(request)
 
 
 @router.get("/app-config")

@@ -82,7 +82,15 @@ from ..youtube.quota import (
 from ..youtube.titles import generate_title_variants
 from ..youtube.thumbnail import generate_video_thumbnail
 from ..youtube.uploader import bulk_upload_videos, run_ab_title_test, upload_manual_files
-from .deps import BASE_DIR, COOKIES_DIR, DB_PATH, DOWNLOAD_DIR, STATIC_DIR, get_session
+from .deps import (
+    BASE_DIR,
+    COOKIES_DIR,
+    DB_PATH,
+    DOWNLOAD_DIR,
+    STATIC_DIR,
+    get_session,
+    resolve_public_base_url,
+)
 from .jobs import job_manager
 from .routes.ai_settings import router as ai_settings_router
 from .routes.facebook import register_facebook_profile_routes, router as facebook_router
@@ -91,7 +99,11 @@ from .routes.threads import register_threads_profile_routes, router as threads_r
 app = FastAPI(title="Affiliate Video Tool", version="0.2.0")
 
 auth_store, _session_secret = setup_auth(BASE_DIR)
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in ("true", "1", "yes")
+_on_railway = os.getenv("RAILWAY_ENVIRONMENT") is not None
+COOKIE_SECURE = os.getenv(
+    "COOKIE_SECURE",
+    "true" if _on_railway else "false",
+).lower() in ("true", "1", "yes")
 
 PUBLIC_PATHS = frozenset({
     "/login.html",
@@ -116,8 +128,7 @@ register_threads_profile_routes(app)
 def _startup_threads_scheduler():
     from ..threads.scheduler import start_autopost_scheduler
 
-    base = os.getenv("PUBLIC_BASE_URL", "http://localhost:8080")
-    start_autopost_scheduler(base)
+    start_autopost_scheduler(resolve_public_base_url())
 
 
 class LoginRequest(BaseModel):
