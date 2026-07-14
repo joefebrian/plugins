@@ -519,9 +519,9 @@ def _migrate_schema(engine) -> None:
     _migrate_facebook_tables(engine, tables)
     _migrate_threads_tables(engine, tables)
     _migrate_ai_provider_tables(engine, tables)
+    _migrate_profile_folders(engine, tables)
     _migrate_users_tables(engine, tables)
     _migrate_monitoring_tables(engine, tables)
-    _migrate_profile_folders(engine, tables)
 
 
 def _migrate_oauth_app_columns(engine, tables: set[str]) -> None:
@@ -686,18 +686,19 @@ def _migrate_facebook_tables(engine, tables: set[str]) -> None:
 
 
 def _migrate_profile_folders(engine, tables: set[str]) -> None:
+    """Must run before any ORM query on Profile (model includes folder_id)."""
     from sqlalchemy import inspect, text
 
-    if "profile_folders" not in tables:
-        Base.metadata.create_all(engine, tables=[ProfileFolder.__table__])
+    Base.metadata.create_all(engine, tables=[ProfileFolder.__table__])
 
     inspector = inspect(engine)
-    tables = set(inspector.get_table_names())
-    if "profiles" in tables:
-        cols = {c["name"] for c in inspector.get_columns("profiles")}
-        if "folder_id" not in cols:
-            with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE profiles ADD COLUMN folder_id INTEGER"))
+    if "profiles" not in set(inspector.get_table_names()):
+        return
+
+    cols = {c["name"] for c in inspector.get_columns("profiles")}
+    if "folder_id" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE profiles ADD COLUMN folder_id INTEGER"))
 
 
 def _migrate_monitoring_tables(engine, tables: set[str]) -> None:
@@ -732,6 +733,7 @@ def _migrate_users_tables(engine, tables: set[str]) -> None:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
 
     _add_col("profiles", "user_id", "INTEGER")
+    _add_col("profiles", "folder_id", "INTEGER")
     _add_col("youtube_channels", "user_id", "INTEGER")
     _add_col("facebook_pages", "user_id", "INTEGER")
     _add_col("threads_accounts", "user_id", "INTEGER")
@@ -787,6 +789,7 @@ def _migrate_users_tables(engine, tables: set[str]) -> None:
                         CREATE TABLE profiles_new (
                             id INTEGER PRIMARY KEY,
                             user_id INTEGER,
+                            folder_id INTEGER,
                             platform VARCHAR(20) NOT NULL,
                             username VARCHAR(255) NOT NULL,
                             url VARCHAR(512) NOT NULL,
@@ -794,6 +797,7 @@ def _migrate_users_tables(engine, tables: set[str]) -> None:
                             last_scanned_at DATETIME,
                             created_at DATETIME,
                             FOREIGN KEY(user_id) REFERENCES users(id),
+                            FOREIGN KEY(folder_id) REFERENCES profile_folders(id),
                             UNIQUE(user_id, platform, username)
                         )
                         """
@@ -803,8 +807,8 @@ def _migrate_users_tables(engine, tables: set[str]) -> None:
                     text(
                         """
                         INSERT INTO profiles_new
-                            (id, user_id, platform, username, url, video_count, last_scanned_at, created_at)
-                        SELECT id, user_id, platform, username, url, video_count, last_scanned_at, created_at
+                            (id, user_id, folder_id, platform, username, url, video_count, last_scanned_at, created_at)
+                        SELECT id, user_id, folder_id, platform, username, url, video_count, last_scanned_at, created_at
                         FROM profiles
                         """
                     )
@@ -814,8 +818,13 @@ def _migrate_users_tables(engine, tables: set[str]) -> None:
                 conn.execute(text("PRAGMA foreign_keys=ON"))
 
 
-def init_db(db_path: Path):
+def run_migrations(db_path: Path) -> None:
     engine = get_engine(db_path)
     Base.metadata.create_all(engine)
     _migrate_schema(engine)
+
+
+def init_db(db_path: Path):
+    run_migrations(db_path)
+    engine = get_engine(db_path)
     return sessionmaker(bind=engine)()

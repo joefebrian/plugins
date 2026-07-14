@@ -24,7 +24,7 @@ from ..auth import (
     setup_auth,
 )
 from ..cookies_util import filter_tiktok_cookies, validate_tiktok_cookies
-from ..db.models import init_db
+from ..db.models import init_db, run_migrations
 from ..gmv.importer import import_gmv_csv, import_gmv_text
 from ..gmv.tiktok_shop import (
     TikTokShopAPIError,
@@ -89,7 +89,6 @@ from ..youtube.quota import (
 from ..youtube.titles import generate_title_variants
 from ..youtube.thumbnail import generate_video_thumbnail
 from ..youtube.uploader import bulk_upload_videos, run_ab_title_test, upload_manual_files
-from ..db.models import init_db
 from ..users import (
     access_block_reason,
     authenticate_user,
@@ -155,7 +154,8 @@ register_threads_profile_routes(app)
 
 
 @app.on_event("startup")
-def _startup_threads_scheduler():
+def _startup():
+    run_migrations(DB_PATH)
     from ..threads.scheduler import start_autopost_scheduler
 
     start_autopost_scheduler(resolve_public_base_url())
