@@ -483,6 +483,25 @@ h1, h2, h3, .page-header h2, .panel-header h3, #profile-title {
   color: var(--accent);
 }
 
+.col-select {
+  width: 36px;
+  text-align: center;
+  padding-left: 8px !important;
+  padding-right: 4px !important;
+}
+
+.col-select input[type="checkbox"],
+.video-select {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+tr.video-row-selected {
+  background: var(--primary-muted);
+}
+
 .status-badge {
   display: inline-block;
   padding: 3px 8px;

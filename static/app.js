@@ -435,6 +435,115 @@ function renderProfile(p) {
   $('#stat-scanned').textContent = fmtDate(p.last_scanned_at);
 }
 
+function getSelectedVideos() {
+  return [...document.querySelectorAll('.video-select:checked')].map((cb) => ({
+    dbId: parseInt(cb.dataset.dbId, 10),
+    platformVideoId: cb.dataset.videoId,
+  }));
+}
+
+function updateVideoSelectCount() {
+  const el = $('#video-select-count');
+  const n = document.querySelectorAll('.video-select:checked').length;
+  if (el) el.textContent = n ? `${n} dipilih` : '';
+  const all = $('#video-select-all');
+  const boxes = document.querySelectorAll('.video-select');
+  if (all && boxes.length) {
+    all.indeterminate = n > 0 && n < boxes.length;
+    all.checked = n > 0 && n === boxes.length;
+  }
+}
+
+async function triggerDirectDownload(videoDbId) {
+  const quality = $('#download-quality')?.value || 'best';
+  const res = await fetch(
+    `/api/videos/${videoDbId}/direct-download?quality=${encodeURIComponent(quality)}`,
+    { credentials: 'same-origin' },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Download gagal (${res.status})`);
+  }
+  const blob = await res.blob();
+  let filename = 'video.mp4';
+  const cd = res.headers.get('Content-Disposition');
+  const match = cd?.match(/filename="([^"]+)"/);
+  if (match) filename = match[1];
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadSelectedDirect() {
+  const selected = getSelectedVideos();
+  if (!selected.length) {
+    showToast('Centang video yang mau di-download dulu', 'error');
+    return;
+  }
+  showToast(`Download ${selected.length} video langsung ke PC...`);
+  let failed = 0;
+  for (let i = 0; i < selected.length; i += 1) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 900));
+    try {
+      await triggerDirectDownload(selected[i].dbId);
+    } catch (e) {
+      failed += 1;
+      showToast(e.message, 'error');
+    }
+  }
+  if (failed && failed < selected.length) {
+    showToast(`${selected.length - failed} berhasil, ${failed} gagal`, 'error');
+  } else if (!failed) {
+    showToast(`${selected.length} video selesai di-download`, 'success');
+  }
+}
+
+async function downloadSelectedToServer() {
+  if (!currentProfileId) {
+    showToast('Pilih profil dulu', 'error');
+    return;
+  }
+  const selected = getSelectedVideos();
+  if (!selected.length) {
+    showToast('Centang video yang mau disimpan dulu', 'error');
+    return;
+  }
+  const { quality } = getDownloadOptions();
+  showLoading(`Menyimpan ${selected.length} video ke server...`);
+  try {
+    const job = await api(`/profiles/${currentProfileId}/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        video_ids: selected.map((v) => v.platformVideoId),
+        only_pending: false,
+        limit: selected.length,
+        quality,
+      }),
+    });
+    pollJob(job.id, async (done) => {
+      const r = done.result || {};
+      if (!r.total_attempted) {
+        showToast(r.errors?.[0] || 'Tidak ada video untuk di-download', 'error');
+        return;
+      }
+      let msg = `Server: ${r.success} berhasil, ${r.failed} gagal, ${r.skipped} skip`;
+      if (r.errors?.length) msg += ` — ${r.errors[0]}`;
+      showToast(msg, r.failed > 0 && r.success === 0 ? 'error' : 'success');
+      await selectProfile(currentProfileId);
+    });
+  } catch (e) {
+    hideLoading();
+    showToast(e.message, 'error');
+  }
+}
+
 async function loadVideos() {
   const params = getFilterParams();
   const videos = await api(`/profiles/${currentProfileId}/videos?${params}`);
@@ -442,12 +551,19 @@ async function loadVideos() {
   tbody.innerHTML = '';
   const countEl = $('#filter-count');
   if (countEl) countEl.textContent = `${videos.length} video`;
+  const selectAll = $('#video-select-all');
+  if (selectAll) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+  }
+  updateVideoSelectCount();
 
   videos.forEach((v) => {
     const tr = document.createElement('tr');
     const statusCls = v.is_downloaded ? 'status-done' : 'status-pending';
     const statusText = v.is_downloaded ? '✓ Downloaded' : '○ Pending';
     tr.innerHTML = `
+      <td class="col-select"><input type="checkbox" class="video-select" data-db-id="${v.id}" data-video-id="${v.platform_video_id}" aria-label="Pilih video" /></td>
       <td><span class="status-badge ${statusCls}">${statusText}</span></td>
       <td>
         <div class="video-title">${v.title || 'Untitled'}</div>
@@ -459,7 +575,8 @@ async function loadVideos() {
       <td class="${v.gmv ? 'money' : 'money-empty'}">${fmtMoney(v.gmv)}</td>
       <td class="${v.commission ? 'money' : 'money-empty'}">${fmtMoney(v.commission)}</td>
       <td>
-        <button class="btn btn-sm btn-secondary" data-dl="${v.platform_video_id}" title="Download">↓</button>
+        <button class="btn btn-sm btn-secondary" data-direct-dl="${v.id}" title="Download langsung ke PC">↓</button>
+        <button class="btn btn-sm btn-ghost" data-dl="${v.platform_video_id}" title="Simpan ke server">💾</button>
         <button class="btn btn-sm btn-ghost" data-edit="${v.id}" data-vid="${v.platform_video_id}" data-gmv="${v.gmv || ''}" data-comm="${v.commission || ''}" title="Edit GMV">✎</button>
         ${v.is_downloaded ? `<a class="btn btn-sm btn-ghost" href="/api/videos/${v.id}/file" target="_blank">▶</a>` : ''}
         ${(v.youtube_uploads || []).map((u) => `<a class="btn btn-sm btn-ghost" href="${u.youtube_url}" target="_blank" title="${u.channel_title || 'YouTube'}">YT</a>`).join('')}
@@ -470,11 +587,24 @@ async function loadVideos() {
     tbody.appendChild(tr);
   });
 
+  tbody.querySelectorAll('[data-direct-dl]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await triggerDirectDownload(parseInt(btn.dataset.directDl, 10));
+        showToast('Download dimulai', 'success');
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    };
+  });
   tbody.querySelectorAll('[data-dl]').forEach((btn) => {
     btn.onclick = () => downloadSingle(btn.dataset.dl);
   });
   tbody.querySelectorAll('[data-edit]').forEach((btn) => {
     btn.onclick = () => openEditGmv(btn.dataset);
+  });
+  tbody.querySelectorAll('.video-select').forEach((cb) => {
+    cb.onchange = updateVideoSelectCount;
   });
 }
 
@@ -664,6 +794,13 @@ $('#btn-rescan').onclick = async () => {
 
 $('#btn-download-pending').onclick = () => downloadPending();
 $('#btn-download-filtered').onclick = () => downloadFiltered();
+$('#btn-download-selected-direct')?.addEventListener('click', () => downloadSelectedDirect());
+$('#btn-download-selected-server')?.addEventListener('click', () => downloadSelectedToServer());
+$('#video-select-all')?.addEventListener('change', (e) => {
+  const checked = e.target.checked;
+  document.querySelectorAll('.video-select').forEach((cb) => { cb.checked = checked; });
+  updateVideoSelectCount();
+});
 $('#btn-export-csv').onclick = () => {
   if (!currentProfileId) {
     showToast('Pilih profil dulu', 'error');

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -35,6 +35,7 @@ from ..gmv.tiktok_shop import (
     save_shop_config,
     sync_gmv_from_api,
 )
+from ..direct_download import direct_download_filename, resolve_direct_download_url, stream_remote_video
 from ..profile_folders import (
     create_folder,
     delete_folder,
@@ -1513,12 +1514,68 @@ def api_job_status(job_id: str):
     return job_manager.to_dict(job)
 
 
-@app.get("/api/videos/{video_id}/file")
-def api_serve_video(video_id: int, session: Session = Depends(get_session)):
-    from ..db.models import Video
+def _get_owned_video(session: Session, video_id: int, user_id: int):
+    from ..db.models import Profile, Video
 
     video = session.query(Video).filter_by(id=video_id).first()
-    if not video or not video.is_downloaded or not video.file_path:
+    if not video:
+        raise HTTPException(404, "Video tidak ditemukan")
+    profile = session.query(Profile).filter_by(id=video.profile_id, user_id=user_id).first()
+    if not profile:
+        raise HTTPException(404, "Video tidak ditemukan")
+    return video, profile
+
+
+@app.get("/api/videos/{video_id}/direct-download")
+def api_direct_download_video(
+    video_id: int,
+    quality: str = "best",
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    video, profile = _get_owned_video(session, video_id, user_id)
+    cookies_file = None
+    tiktok_only = COOKIES_DIR / "tiktok_only.txt"
+    if tiktok_only.exists():
+        cookies_file = str(tiktok_only)
+    else:
+        raw = COOKIES_DIR / "cookies.txt"
+        if raw.exists():
+            cookies_file = str(raw)
+
+    try:
+        source_url = resolve_direct_download_url(
+            video,
+            profile.platform,
+            quality=quality,
+            cookies_file=cookies_file if profile.platform == "instagram" else None,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:
+        raise HTTPException(400, f"Gagal mengambil video: {e}") from e
+
+    filename = direct_download_filename(video)
+    referer = "https://www.tiktok.com/" if profile.platform == "tiktok" else "https://www.instagram.com/"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    }
+    return StreamingResponse(
+        stream_remote_video(source_url, referer=referer),
+        media_type="video/mp4",
+        headers=headers,
+    )
+
+
+@app.get("/api/videos/{video_id}/file")
+def api_serve_video(
+    video_id: int,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    video, _profile = _get_owned_video(session, video_id, user_id)
+    if not video.is_downloaded or not video.file_path:
         raise HTTPException(404, "Video belum di-download")
 
     path = Path(video.file_path)
