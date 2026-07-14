@@ -196,25 +196,183 @@ async function pollJob(jobId, onDone) {
   }, 1500);
 }
 
-async function loadProfiles() {
-  const profiles = await api('/profiles');
+const FOLDER_COLLAPSE_KEY = 'av-folders-collapsed';
+
+function getCollapsedFolderIds() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(FOLDER_COLLAPSE_KEY) || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function setFolderCollapsed(folderId, collapsed) {
+  const ids = getCollapsedFolderIds();
+  if (collapsed) ids.add(String(folderId));
+  else ids.delete(String(folderId));
+  localStorage.setItem(FOLDER_COLLAPSE_KEY, JSON.stringify([...ids]));
+}
+
+function buildProfileItemEl(p) {
+  const el = document.createElement('div');
+  el.className = 'profile-item' + (p.id === currentProfileId ? ' active' : '');
+  el.dataset.id = p.id;
+  const icon = p.platform === 'tiktok' ? '🎵' : '📸';
+  el.innerHTML = `
+    <div class="pi-icon">${icon}</div>
+    <div class="pi-body">
+      <div class="pi-name">@${p.username}</div>
+      <div class="pi-meta">${p.total || 0} video · ${p.pending || 0} pending</div>
+    </div>
+    <button type="button" class="pi-move" title="Pindah ke folder" aria-label="Pindah ke folder">📁</button>`;
+  el.querySelector('.pi-body').onclick = () => selectProfile(p.id);
+  el.querySelector('.pi-icon').onclick = () => selectProfile(p.id);
+  el.querySelector('.pi-move').onclick = (e) => {
+    e.stopPropagation();
+    openFolderMoveMenu(p.id, e.currentTarget);
+  };
+  return el;
+}
+
+function hideFolderMoveMenu() {
+  const menu = $('#folder-move-menu');
+  if (menu) menu.classList.add('hidden');
+}
+
+async function openFolderMoveMenu(profileId, anchorEl) {
+  const menu = $('#folder-move-menu');
+  if (!menu) return;
+  const folders = await api('/profile-folders');
+  menu.innerHTML = `
+    <div class="menu-title">Pindah ke folder</div>
+    <button type="button" data-folder-id="">Tanpa folder</button>
+    ${folders.map((f) => `<button type="button" data-folder-id="${f.id}">${f.name}</button>`).join('')}`;
+  const rect = anchorEl.getBoundingClientRect();
+  menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 200)}px`;
+  menu.style.left = `${Math.min(rect.left, window.innerWidth - 180)}px`;
+  menu.classList.remove('hidden');
+  menu.querySelectorAll('button[data-folder-id]').forEach((btn) => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const raw = btn.dataset.folderId;
+      const folderId = raw === '' ? null : parseInt(raw, 10);
+      hideFolderMoveMenu();
+      try {
+        await api(`/profiles/${profileId}/folder`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder_id: folderId }),
+        });
+        showToast(folderId ? 'Profil dipindah ke folder' : 'Profil dikeluarkan dari folder');
+        await loadProfiles();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    };
+  });
+}
+
+function renderProfileSidebar(profiles, folders) {
   const list = $('#profile-list');
+  if (!list) return;
   list.innerHTML = '';
 
+  const collapsed = getCollapsedFolderIds();
+  const byFolder = new Map();
+  const uncategorized = [];
+
   profiles.forEach((p) => {
-    const el = document.createElement('div');
-    el.className = 'profile-item' + (p.id === currentProfileId ? ' active' : '');
-    el.dataset.id = p.id;
-    const icon = p.platform === 'tiktok' ? '🎵' : '📸';
-    el.innerHTML = `
-      <div class="pi-icon">${icon}</div>
-      <div>
-        <div class="pi-name">@${p.username}</div>
-        <div class="pi-meta">${p.total || 0} video · ${p.pending || 0} pending</div>
-      </div>`;
-    el.onclick = () => selectProfile(p.id);
-    list.appendChild(el);
+    if (p.folder_id) {
+      if (!byFolder.has(p.folder_id)) byFolder.set(p.folder_id, []);
+      byFolder.get(p.folder_id).push(p);
+    } else {
+      uncategorized.push(p);
+    }
   });
+
+  folders.forEach((folder) => {
+    const items = byFolder.get(folder.id) || [];
+    const group = document.createElement('div');
+    group.className = 'profile-folder-group' + (collapsed.has(String(folder.id)) ? ' collapsed' : '');
+    group.dataset.folderId = folder.id;
+
+    const head = document.createElement('div');
+    head.className = 'profile-folder-head';
+    head.innerHTML = `
+      <button type="button" class="profile-folder-toggle">
+        <span class="folder-chevron">▾</span>
+        <span class="folder-name">${folder.name}</span>
+        <span class="folder-count">${items.length}</span>
+      </button>
+      <div class="profile-folder-actions">
+        <button type="button" class="btn btn-ghost btn-rename-folder" title="Rename">✎</button>
+        <button type="button" class="btn btn-ghost btn-delete-folder" title="Hapus folder">✕</button>
+      </div>`;
+
+    head.querySelector('.profile-folder-toggle').onclick = () => {
+      const isCollapsed = group.classList.toggle('collapsed');
+      setFolderCollapsed(folder.id, isCollapsed);
+    };
+    head.querySelector('.btn-rename-folder').onclick = async (e) => {
+      e.stopPropagation();
+      const name = prompt('Nama folder baru:', folder.name);
+      if (!name || name.trim() === folder.name) return;
+      try {
+        await api(`/profile-folders/${folder.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim() }),
+        });
+        await loadProfiles();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    };
+    head.querySelector('.btn-delete-folder').onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Hapus folder "${folder.name}"? Profil di dalamnya tetap ada (tanpa folder).`)) return;
+      try {
+        await api(`/profile-folders/${folder.id}`, { method: 'DELETE' });
+        showToast('Folder dihapus');
+        await loadProfiles();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    };
+
+    const itemsEl = document.createElement('div');
+    itemsEl.className = 'profile-folder-items';
+    items.forEach((p) => itemsEl.appendChild(buildProfileItemEl(p)));
+
+    group.appendChild(head);
+    group.appendChild(itemsEl);
+    list.appendChild(group);
+  });
+
+  if (uncategorized.length) {
+    if (folders.length) {
+      const label = document.createElement('div');
+      label.className = 'profile-uncategorized-label';
+      label.textContent = 'Tanpa folder';
+      list.appendChild(label);
+    }
+    uncategorized.forEach((p) => list.appendChild(buildProfileItemEl(p)));
+  }
+
+  if (!profiles.length && !folders.length) {
+    const empty = document.createElement('p');
+    empty.className = 'sidebar-hint';
+    empty.textContent = 'Belum ada profil. Scan dulu.';
+    list.appendChild(empty);
+  }
+}
+
+async function loadProfiles() {
+  const [profiles, folders] = await Promise.all([
+    api('/profiles'),
+    api('/profile-folders'),
+  ]);
+  renderProfileSidebar(profiles, folders);
 
   if (profiles.length === 0) {
     $('#empty-state').classList.remove('hidden');
@@ -227,6 +385,28 @@ async function loadProfiles() {
     }
   }
 }
+
+$('#btn-new-profile-folder')?.addEventListener('click', async () => {
+  const name = prompt('Nama folder baru:');
+  if (!name?.trim()) return;
+  try {
+    await api('/profile-folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    showToast(`Folder "${name.trim()}" dibuat`);
+    await loadProfiles();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#folder-move-menu') && !e.target.closest('.pi-move')) {
+    hideFolderMoveMenu();
+  }
+});
 
 async function selectProfile(id) {
   currentProfileId = id;

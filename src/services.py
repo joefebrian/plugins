@@ -432,6 +432,7 @@ def get_profile_stats(session: Session, profile_id: int) -> dict:
 def profile_to_dict(profile: Profile, stats: dict | None = None) -> dict:
     data = {
         "id": profile.id,
+        "folder_id": profile.folder_id,
         "platform": profile.platform,
         "username": profile.username,
         "url": profile.url,

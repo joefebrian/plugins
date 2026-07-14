@@ -35,6 +35,13 @@ from ..gmv.tiktok_shop import (
     save_shop_config,
     sync_gmv_from_api,
 )
+from ..profile_folders import (
+    create_folder,
+    delete_folder,
+    list_folders_with_counts,
+    move_profile_to_folder,
+    rename_folder,
+)
 from ..services import (
     delete_profile,
     download_videos,
@@ -235,6 +242,18 @@ app.add_middleware(
     same_site="strict",
     https_only=COOKIE_SECURE,
 )
+
+
+class ProfileFolderRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class ProfileFolderRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class ProfileMoveFolderRequest(BaseModel):
+    folder_id: Optional[int] = None
 
 
 class ScanRequest(BaseModel):
@@ -559,6 +578,68 @@ def api_list_profiles(
         stats = get_profile_stats(session, p.id)
         result.append(profile_to_dict(p, stats))
     return result
+
+
+@app.get("/api/profile-folders")
+def api_list_profile_folders(
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    return list_folders_with_counts(session, user_id)
+
+
+@app.post("/api/profile-folders")
+def api_create_profile_folder(
+    req: ProfileFolderRequest,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    try:
+        folder = create_folder(session, user_id, req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, "folder": {"id": folder.id, "name": folder.name}}
+
+
+@app.patch("/api/profile-folders/{folder_id}")
+def api_rename_profile_folder(
+    folder_id: int,
+    req: ProfileFolderRenameRequest,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    try:
+        folder = rename_folder(session, user_id, folder_id, req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, "folder": {"id": folder.id, "name": folder.name}}
+
+
+@app.delete("/api/profile-folders/{folder_id}")
+def api_delete_profile_folder(
+    folder_id: int,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    try:
+        return delete_folder(session, user_id, folder_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.patch("/api/profiles/{profile_id}/folder")
+def api_move_profile_folder(
+    profile_id: int,
+    req: ProfileMoveFolderRequest,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    try:
+        profile = move_profile_to_folder(session, user_id, profile_id, req.folder_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    stats = get_profile_stats(session, profile.id)
+    return {"ok": True, "profile": profile_to_dict(profile, stats)}
 
 
 @app.get("/api/profiles/{profile_id}")

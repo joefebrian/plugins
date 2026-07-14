@@ -43,11 +43,30 @@ class User(Base):
     profiles: Mapped[List["Profile"]] = relationship("Profile", back_populates="owner")
 
 
+class ProfileFolder(Base):
+    """User-created folder to group saved profiles in the sidebar."""
+
+    __tablename__ = "profile_folders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    profiles: Mapped[List["Profile"]] = relationship("Profile", back_populates="folder")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_user_folder_name"),
+    )
+
+
 class Profile(Base):
     __tablename__ = "profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    folder_id: Mapped[Optional[int]] = mapped_column(ForeignKey("profile_folders.id"), nullable=True, index=True)
     platform: Mapped[str] = mapped_column(String(20), nullable=False)  # tiktok | instagram
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -56,6 +75,7 @@ class Profile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     owner: Mapped[Optional["User"]] = relationship("User", back_populates="profiles")
+    folder: Mapped[Optional["ProfileFolder"]] = relationship("ProfileFolder", back_populates="profiles")
     videos: Mapped[List["Video"]] = relationship("Video", back_populates="profile")
 
     __table_args__ = (
@@ -501,6 +521,7 @@ def _migrate_schema(engine) -> None:
     _migrate_ai_provider_tables(engine, tables)
     _migrate_users_tables(engine, tables)
     _migrate_monitoring_tables(engine, tables)
+    _migrate_profile_folders(engine, tables)
 
 
 def _migrate_oauth_app_columns(engine, tables: set[str]) -> None:
@@ -662,6 +683,21 @@ def _migrate_facebook_tables(engine, tables: set[str]) -> None:
             VideoFacebookUpload.__table__,
         ],
     )
+
+
+def _migrate_profile_folders(engine, tables: set[str]) -> None:
+    from sqlalchemy import inspect, text
+
+    if "profile_folders" not in tables:
+        Base.metadata.create_all(engine, tables=[ProfileFolder.__table__])
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "profiles" in tables:
+        cols = {c["name"] for c in inspector.get_columns("profiles")}
+        if "folder_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE profiles ADD COLUMN folder_id INTEGER"))
 
 
 def _migrate_monitoring_tables(engine, tables: set[str]) -> None:

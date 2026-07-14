@@ -111,9 +111,13 @@
 
       <button class="btn btn-primary btn-block" id="btn-scan-open">+ Scan Profil Baru</button>
 
-      <div class="sidebar-section">
-        <h3>Profil Tersimpan</h3>
+      <div class="sidebar-section sidebar-profiles">
+        <div class="sidebar-section-header">
+          <h3>Profil Tersimpan</h3>
+          <button type="button" class="btn btn-sm btn-ghost" id="btn-new-profile-folder" title="Buat folder baru">+ Folder</button>
+        </div>
         <div id="profile-list" class="profile-list"></div>
+        <div id="folder-move-menu" class="folder-move-menu hidden" role="menu"></div>
       </div>
 
       <div class="sidebar-footer">
