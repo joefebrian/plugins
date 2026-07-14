@@ -18,13 +18,16 @@
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-icon">AV</div>
-        <div>
+        <div class="brand-text">
           <h1>Affiliate Video</h1>
           <p>TikTok → multi-platform</p>
         </div>
+        <button type="button" class="btn-sidebar-toggle" id="btn-sidebar-collapse" aria-label="Sembunyikan sidebar" title="Sembunyikan sidebar">
+          <i data-lucide="panel-left-close"></i>
+        </button>
       </div>
 
       <nav class="sidebar-nav">
@@ -130,6 +133,9 @@
     </aside>
 
     <main class="main">
+      <button type="button" class="sidebar-open-fab hidden" id="btn-sidebar-open" aria-label="Tampilkan sidebar" title="Tampilkan sidebar">
+        <i data-lucide="panel-left-open"></i>
+      </button>
       <div id="view-profiles">
       <div id="empty-state" class="empty-state">
         <div class="empty-icon"><i data-lucide="bar-chart-3"></i></div>
@@ -219,7 +225,8 @@
                     <option value="gmv">Sort: GMV</option>
                     <option value="views">Sort: Views</option>
                     <option value="likes">Sort: Likes</option>
-                    <option value="date">Sort: Upload Date</option>
+                    <option value="date_desc">Sort: Tanggal terbaru</option>
+                    <option value="date_asc">Sort: Tanggal terlama</option>
                   </select>
                   <input type="date" id="filter-date-from" title="Upload dari tanggal" />
                   <input type="date" id="filter-date-to" title="Upload sampai tanggal" />
@@ -344,6 +351,16 @@
                       <option value="private" selected>Private</option>
                       <option value="unlisted">Unlisted</option>
                       <option value="public">Public</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Urutan video</label>
+                    <select name="sort_by" class="upload-sort-select">
+                      <option value="gmv">GMV tertinggi</option>
+                      <option value="views">Views tertinggi</option>
+                      <option value="likes">Likes tertinggi</option>
+                      <option value="date_desc">Tanggal terbaru</option>
+                      <option value="date_asc">Tanggal terlama</option>
                     </select>
                   </div>
                 </div>
@@ -623,12 +640,26 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
                     <select id="threads-bulk-account" name="threads_account_id" required></select>
                   </div>
                 </div>
-                <label>Batch</label>
-                <select name="limit">
-                  <option value="3">3 post</option>
-                  <option value="5" selected>5 post</option>
-                  <option value="10">10 post</option>
-                </select>
+                <div class="form-row">
+                  <div>
+                    <label>Batch</label>
+                    <select name="limit">
+                      <option value="3">3 post</option>
+                      <option value="5" selected>5 post</option>
+                      <option value="10">10 post</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Urutan video</label>
+                    <select name="sort_by" class="upload-sort-select">
+                      <option value="gmv">GMV tertinggi</option>
+                      <option value="views">Views tertinggi</option>
+                      <option value="likes">Likes tertinggi</option>
+                      <option value="date_desc">Tanggal terbaru</option>
+                      <option value="date_asc">Tanggal terlama</option>
+                    </select>
+                  </div>
+                </div>
                 <label class="checkbox-label">
                   <input type="checkbox" name="use_ai_caption" checked />
                   AI caption (voice locale akun)
@@ -636,6 +667,10 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
                 <label class="checkbox-label">
                   <input type="checkbox" name="skip_uploaded" checked />
                   Skip video sudah dipost ke akun ini
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" name="apply_filters" />
+                  Pakai filter aktif dari Dashboard Profil
                 </label>
                 <button type="submit" class="btn btn-primary">▶ Bulk Post ke Threads</button>
               </form>
@@ -721,6 +756,16 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
                     <select name="published">
                       <option value="true" selected>Published (langsung tampil)</option>
                       <option value="false">Unpublished (draft)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Urutan video</label>
+                    <select name="sort_by" class="upload-sort-select">
+                      <option value="gmv">GMV tertinggi</option>
+                      <option value="views">Views tertinggi</option>
+                      <option value="likes">Likes tertinggi</option>
+                      <option value="date_desc">Tanggal terbaru</option>
+                      <option value="date_asc">Tanggal terlama</option>
                     </select>
                   </div>
                 </div>

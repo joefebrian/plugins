@@ -230,11 +230,16 @@ def list_videos(
             return (v.views or 0, v.gmv or 0)
         if sort_by == "likes":
             return (v.likes or 0, v.views or 0)
-        if sort_by == "date":
-            return (v.posted_at.timestamp() if v.posted_at else 0, v.views or 0)
-        return (v.first_seen_at.timestamp(),)
+        if sort_by in ("date", "date_desc"):
+            ts = v.posted_at.timestamp() if v.posted_at else (v.first_seen_at.timestamp() if v.first_seen_at else 0)
+            return (ts, v.views or 0)
+        if sort_by == "date_asc":
+            ts = v.posted_at.timestamp() if v.posted_at else (v.first_seen_at.timestamp() if v.first_seen_at else 0)
+            return (ts, -(v.views or 0))
+        return (v.first_seen_at.timestamp() if v.first_seen_at else 0,)
 
-    return sorted(videos, key=sort_key, reverse=True)
+    reverse = sort_by != "date_asc"
+    return sorted(videos, key=sort_key, reverse=reverse)
 
 
 def videos_to_csv(videos: list[Video]) -> str:

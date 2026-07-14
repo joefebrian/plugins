@@ -1,5 +1,6 @@
 const API = '/api';
 const THEME_KEY = 'av-theme';
+const SIDEBAR_KEY = 'av-sidebar-collapsed';
 let currentProfileId = null;
 let pollTimer = null;
 let currentUser = null;
@@ -93,6 +94,30 @@ function getFilterBody() {
     max_views: params.get('max_views') ? parseInt(params.get('max_views'), 10) : null,
   };
 }
+
+function getUploadSortBy(form) {
+  const sel = form?.querySelector('[name="sort_by"]');
+  return sel?.value || 'gmv';
+}
+
+function setSidebarCollapsed(collapsed) {
+  const app = document.querySelector('.app');
+  const openBtn = $('#btn-sidebar-open');
+  if (!app) return;
+  app.classList.toggle('sidebar-collapsed', collapsed);
+  if (openBtn) openBtn.classList.toggle('hidden', !collapsed);
+  localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
+  refreshIcons();
+}
+
+function initSidebarCollapse() {
+  const collapsed = localStorage.getItem(SIDEBAR_KEY) === '1';
+  setSidebarCollapsed(collapsed);
+  $('#btn-sidebar-collapse')?.addEventListener('click', () => setSidebarCollapsed(true));
+  $('#btn-sidebar-open')?.addEventListener('click', () => setSidebarCollapsed(false));
+}
+
+initSidebarCollapse();
 
 function showToast(msg, type = 'success') {
   const el = $('#toast');
@@ -1794,11 +1819,13 @@ $('#form-youtube-upload').onsubmit = async (e) => {
     auto_thumbnail: !!e.target.auto_thumbnail?.checked,
     schedule_enabled: scheduleOn,
     schedule_interval_hours: 3,
+    sort_by: getUploadSortBy(e.target),
   };
   if (scheduleOn && scheduleStart) {
     body.schedule_start = new Date(scheduleStart).toISOString();
   }
   if (body.apply_filters) Object.assign(body, getFilterBody());
+  else body.sort_by = getUploadSortBy(e.target);
 
   const loadingMsg = scheduleOn
     ? `Upload + jadwal ${body.limit} video (interval 3 jam)...`
@@ -2087,8 +2114,10 @@ $('#form-facebook-upload')?.addEventListener('submit', async (e) => {
     skip_uploaded: !!e.target.skip_uploaded?.checked,
     only_downloaded: true,
     apply_filters: !!e.target.apply_filters?.checked,
+    sort_by: getUploadSortBy(e.target),
   };
   if (body.apply_filters) Object.assign(body, getFilterBody());
+  else body.sort_by = getUploadSortBy(e.target);
 
   showLoading(`Upload ${body.limit} video ke Facebook...`);
   try {
@@ -2472,7 +2501,12 @@ $('#form-threads-bulk')?.addEventListener('submit', async (e) => {
     limit: parseInt(fd.get('limit'), 10) || 5,
     use_ai_caption: !!e.target.use_ai_caption?.checked,
     skip_uploaded: !!e.target.skip_uploaded?.checked,
+    apply_filters: !!e.target.apply_filters?.checked,
+    sort_by: getUploadSortBy(e.target),
   };
+  if (body.apply_filters) Object.assign(body, getFilterBody());
+  else body.sort_by = getUploadSortBy(e.target);
+
   showLoading(`Bulk post ${body.limit} ke Threads...`);
   try {
     const job = await api(`/profiles/${profileId}/threads-upload`, {

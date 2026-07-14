@@ -80,6 +80,19 @@ h1, h2, h3, .page-header h2, .panel-header h3, #profile-title {
   display: grid;
   grid-template-columns: 280px 1fr;
   min-height: 100vh;
+  transition: grid-template-columns 0.2s ease;
+}
+
+.app.sidebar-collapsed {
+  grid-template-columns: 0 1fr;
+}
+
+.app.sidebar-collapsed .sidebar {
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  padding: 0;
+  border: none;
 }
 
 /* Sidebar */
@@ -97,6 +110,66 @@ h1, h2, h3, .page-header h2, .panel-header h3, #profile-title {
   align-items: center;
   gap: 12px;
   padding: 0 8px;
+}
+
+.brand-text { flex: 1; min-width: 0; }
+
+.btn-sidebar-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.btn-sidebar-toggle:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.btn-sidebar-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-open-fab {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.sidebar-open-fab:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.16);
+}
+
+.sidebar-open-fab svg {
+  width: 20px;
+  height: 20px;
+}
+
+.app:not(.sidebar-collapsed) .sidebar-open-fab {
+  display: none !important;
 }
 
 .brand-icon {
