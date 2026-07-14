@@ -35,7 +35,12 @@ from ..gmv.tiktok_shop import (
     save_shop_config,
     sync_gmv_from_api,
 )
-from ..direct_download import direct_download_filename, resolve_direct_download_url, stream_remote_video
+from ..direct_download import (
+    content_disposition_attachment,
+    direct_download_filename,
+    resolve_direct_download_url,
+    stream_remote_video,
+)
 from ..profile_folders import (
     create_folder,
     delete_folder,
@@ -1558,7 +1563,7 @@ def api_direct_download_video(
     filename = direct_download_filename(video)
     referer = "https://www.tiktok.com/" if profile.platform == "tiktok" else "https://www.instagram.com/"
     headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": content_disposition_attachment(filename),
         "Cache-Control": "no-store",
     }
     return StreamingResponse(

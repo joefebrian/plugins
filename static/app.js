@@ -454,6 +454,21 @@ function updateVideoSelectCount() {
   }
 }
 
+function parseContentDispositionFilename(cd) {
+  if (!cd) return null;
+  const utf8 = cd.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8[1].trim());
+    } catch (_) { /* fall through */ }
+  }
+  const quoted = cd.match(/filename="([^"]+)"/);
+  if (quoted) return quoted[1];
+  const plain = cd.match(/filename=([^;]+)/);
+  if (plain) return plain[1].trim();
+  return null;
+}
+
 async function triggerDirectDownload(videoDbId) {
   const quality = $('#download-quality')?.value || 'best';
   const res = await fetch(
@@ -465,10 +480,7 @@ async function triggerDirectDownload(videoDbId) {
     throw new Error(err.detail || `Download gagal (${res.status})`);
   }
   const blob = await res.blob();
-  let filename = 'video.mp4';
-  const cd = res.headers.get('Content-Disposition');
-  const match = cd?.match(/filename="([^"]+)"/);
-  if (match) filename = match[1];
+  const filename = parseContentDispositionFilename(res.headers.get('Content-Disposition')) || 'video.mp4';
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

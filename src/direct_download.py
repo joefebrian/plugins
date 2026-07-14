@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import urllib.request
 from typing import Generator, Optional
+from urllib.parse import quote
 
 import yt_dlp
 
@@ -15,6 +17,26 @@ from .scrapers.tikwm import get_tiktok_video_url
 def direct_download_filename(video: Video) -> str:
     stem = _sanitize_filename_stem(video.title or "", video.platform_video_id)
     return f"{stem}.mp4"
+
+
+def _ascii_filename_fallback(filename: str) -> str:
+    """ASCII-only filename for Content-Disposition (HTTP headers use latin-1)."""
+    stem, dot, ext = filename.rpartition(".")
+    if not dot:
+        stem, ext = filename, ""
+    safe = stem.encode("ascii", "ignore").decode("ascii")
+    safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", safe)
+    safe = " ".join(safe.split()).strip(" .")
+    if not safe:
+        safe = "video"
+    return f"{safe}.{ext}" if ext else safe
+
+
+def content_disposition_attachment(filename: str) -> str:
+    """RFC 5987 attachment header safe for Starlette latin-1 encoding."""
+    fallback = _ascii_filename_fallback(filename)
+    encoded = quote(filename, safe="")
+    return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
 
 
 def resolve_direct_download_url(
