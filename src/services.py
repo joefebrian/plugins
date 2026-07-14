@@ -228,6 +228,8 @@ def list_videos(
             return (v.gmv or 0, v.views or 0, v.likes or 0)
         if sort_by == "views":
             return (v.views or 0, v.gmv or 0)
+        if sort_by == "views_asc":
+            return (v.views or 0, -(v.gmv or 0))
         if sort_by == "likes":
             return (v.likes or 0, v.views or 0)
         if sort_by in ("date", "date_desc"):
@@ -238,7 +240,7 @@ def list_videos(
             return (ts, -(v.views or 0))
         return (v.first_seen_at.timestamp() if v.first_seen_at else 0,)
 
-    reverse = sort_by != "date_asc"
+    reverse = sort_by not in ("date_asc", "views_asc")
     return sorted(videos, key=sort_key, reverse=reverse)
 
 

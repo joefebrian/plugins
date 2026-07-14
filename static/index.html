@@ -223,10 +223,7 @@
                 </select>
                   <select id="filter-sort">
                     <option value="gmv">Sort: GMV</option>
-                    <option value="views">Sort: Views</option>
                     <option value="likes">Sort: Likes</option>
-                    <option value="date_desc">Sort: Tanggal terbaru</option>
-                    <option value="date_asc">Sort: Tanggal terlama</option>
                   </select>
                   <input type="date" id="filter-date-from" title="Upload dari tanggal" />
                   <input type="date" id="filter-date-to" title="Upload sampai tanggal" />
@@ -246,8 +243,20 @@
                   <tr>
                     <th>Status</th>
                     <th>Video</th>
-                    <th>Upload</th>
-                    <th>Views</th>
+                    <th class="th-sortable" data-sort-field="date">
+                      <span>Upload</span>
+                      <span class="th-sort-arrows">
+                        <button type="button" class="th-sort-btn" data-sort-field="date" data-sort-dir="asc" title="Tanggal terlama">▲</button>
+                        <button type="button" class="th-sort-btn" data-sort-field="date" data-sort-dir="desc" title="Tanggal terbaru">▼</button>
+                      </span>
+                    </th>
+                    <th class="th-sortable" data-sort-field="views">
+                      <span>Views</span>
+                      <span class="th-sort-arrows">
+                        <button type="button" class="th-sort-btn" data-sort-field="views" data-sort-dir="asc" title="Views terendah">▲</button>
+                        <button type="button" class="th-sort-btn" data-sort-field="views" data-sort-dir="desc" title="Views tertinggi">▼</button>
+                      </span>
+                    </th>
                     <th>Likes</th>
                     <th>GMV</th>
                     <th>Komisi</th>

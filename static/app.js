@@ -4,6 +4,7 @@ const SIDEBAR_KEY = 'av-sidebar-collapsed';
 let currentProfileId = null;
 let pollTimer = null;
 let currentUser = null;
+let videoColumnSort = { field: null, dir: null };
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -68,10 +69,34 @@ function fmtDateShort(iso) {
   });
 }
 
+function resolveVideoSortBy() {
+  if (videoColumnSort.field === 'date') {
+    return videoColumnSort.dir === 'asc' ? 'date_asc' : 'date_desc';
+  }
+  if (videoColumnSort.field === 'views') {
+    return videoColumnSort.dir === 'asc' ? 'views_asc' : 'views';
+  }
+  return $('#filter-sort')?.value || 'gmv';
+}
+
+function updateVideoColumnSortUi() {
+  $$('.th-sort-btn').forEach((btn) => {
+    const active = btn.dataset.sortField === videoColumnSort.field
+      && btn.dataset.sortDir === videoColumnSort.dir;
+    btn.classList.toggle('active', active);
+  });
+}
+
+function setVideoColumnSort(field, dir) {
+  videoColumnSort = { field, dir };
+  updateVideoColumnSortUi();
+  loadVideos().catch((e) => showToast(e.message, 'error'));
+}
+
 function getFilterParams() {
   const params = new URLSearchParams();
   params.set('status', $('#filter-status').value);
-  params.set('sort_by', $('#filter-sort').value);
+  params.set('sort_by', resolveVideoSortBy());
   const dateFrom = $('#filter-date-from').value;
   const dateTo = $('#filter-date-to').value;
   const minViews = $('#filter-min-views').value;
@@ -2730,7 +2755,20 @@ $('#form-gmv-manual').onsubmit = async (e) => {
   delete form.dataset.dbId;
 };
 
-['filter-status', 'filter-sort', 'filter-date-from', 'filter-date-to', 'filter-min-views', 'filter-max-views']
+document.querySelector('.videos-panel table thead')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.th-sort-btn');
+  if (!btn) return;
+  e.preventDefault();
+  setVideoColumnSort(btn.dataset.sortField, btn.dataset.sortDir);
+});
+
+$('#filter-sort')?.addEventListener('change', () => {
+  videoColumnSort = { field: null, dir: null };
+  updateVideoColumnSortUi();
+  loadVideos().catch((e) => showToast(e.message, 'error'));
+});
+
+['filter-status', 'filter-date-from', 'filter-date-to', 'filter-min-views', 'filter-max-views']
   .forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
