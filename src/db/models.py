@@ -714,6 +714,49 @@ def _migrate_monitoring_tables(engine, tables: set[str]) -> None:
     )
 
 
+def _profiles_has_user_platform_unique(engine) -> bool:
+    """True if profiles already has unique (user_id, platform, username)."""
+    from sqlalchemy import inspect, text
+
+    if "profiles" not in set(inspect(engine).get_table_names()):
+        return False
+
+    with engine.connect() as conn:
+        index_rows = conn.execute(text("PRAGMA index_list('profiles')")).mappings().all()
+
+    for row in index_rows:
+        idx_name = row["name"]
+        if idx_name == "uq_user_platform_username":
+            return True
+        if not idx_name.startswith("sqlite_autoindex_profiles"):
+            continue
+        with engine.connect() as conn:
+            cols = {
+                r["name"]
+                for r in conn.execute(text(f"PRAGMA index_info('{idx_name}')")).mappings()
+            }
+        if {"user_id", "platform", "username"}.issubset(cols):
+            return True
+    return False
+
+
+def _recover_orphan_profiles_new(engine, tables: set[str]) -> set[str]:
+    """Recover from interrupted profiles table rebuild."""
+    from sqlalchemy import inspect, text
+
+    if "profiles_new" not in tables:
+        return tables
+
+    with engine.begin() as conn:
+        if "profiles" not in tables:
+            conn.execute(text("ALTER TABLE profiles_new RENAME TO profiles"))
+            conn.execute(text("PRAGMA foreign_keys=ON"))
+        else:
+            conn.execute(text("DROP TABLE IF EXISTS profiles_new"))
+
+    return set(inspect(engine).get_table_names())
+
+
 def _migrate_users_tables(engine, tables: set[str]) -> None:
     from sqlalchemy import inspect, text
     from sqlalchemy.orm import sessionmaker
@@ -775,47 +818,48 @@ def _migrate_users_tables(engine, tables: set[str]) -> None:
     finally:
         session.close()
 
-    if "profiles" in tables:
-        indexes = []
-        with engine.connect() as conn:
-            for row in conn.execute(text("PRAGMA index_list('profiles')")).mappings():
-                indexes.append(row["name"])
-        if "uq_user_platform_username" not in indexes:
-            with engine.begin() as conn:
-                conn.execute(text("PRAGMA foreign_keys=OFF"))
-                conn.execute(
-                    text(
-                        """
-                        CREATE TABLE profiles_new (
-                            id INTEGER PRIMARY KEY,
-                            user_id INTEGER,
-                            folder_id INTEGER,
-                            platform VARCHAR(20) NOT NULL,
-                            username VARCHAR(255) NOT NULL,
-                            url VARCHAR(512) NOT NULL,
-                            video_count INTEGER DEFAULT 0,
-                            last_scanned_at DATETIME,
-                            created_at DATETIME,
-                            FOREIGN KEY(user_id) REFERENCES users(id),
-                            FOREIGN KEY(folder_id) REFERENCES profile_folders(id),
-                            UNIQUE(user_id, platform, username)
-                        )
-                        """
+    tables = _recover_orphan_profiles_new(engine, tables)
+
+    if "profiles" in tables and not _profiles_has_user_platform_unique(engine):
+        profile_cols = {c["name"] for c in inspect(engine).get_columns("profiles")}
+        folder_select = "folder_id" if "folder_id" in profile_cols else "NULL"
+
+        with engine.begin() as conn:
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
+            conn.execute(text("DROP TABLE IF EXISTS profiles_new"))
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE profiles_new (
+                        id INTEGER PRIMARY KEY,
+                        user_id INTEGER,
+                        folder_id INTEGER,
+                        platform VARCHAR(20) NOT NULL,
+                        username VARCHAR(255) NOT NULL,
+                        url VARCHAR(512) NOT NULL,
+                        video_count INTEGER DEFAULT 0,
+                        last_scanned_at DATETIME,
+                        created_at DATETIME,
+                        FOREIGN KEY(user_id) REFERENCES users(id),
+                        FOREIGN KEY(folder_id) REFERENCES profile_folders(id),
+                        CONSTRAINT uq_user_platform_username UNIQUE (user_id, platform, username)
                     )
+                    """
                 )
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO profiles_new
-                            (id, user_id, folder_id, platform, username, url, video_count, last_scanned_at, created_at)
-                        SELECT id, user_id, folder_id, platform, username, url, video_count, last_scanned_at, created_at
-                        FROM profiles
-                        """
-                    )
+            )
+            conn.execute(
+                text(
+                    f"""
+                    INSERT INTO profiles_new
+                        (id, user_id, folder_id, platform, username, url, video_count, last_scanned_at, created_at)
+                    SELECT id, user_id, {folder_select}, platform, username, url, video_count, last_scanned_at, created_at
+                    FROM profiles
+                    """
                 )
-                conn.execute(text("DROP TABLE profiles"))
-                conn.execute(text("ALTER TABLE profiles_new RENAME TO profiles"))
-                conn.execute(text("PRAGMA foreign_keys=ON"))
+            )
+            conn.execute(text("DROP TABLE profiles"))
+            conn.execute(text("ALTER TABLE profiles_new RENAME TO profiles"))
+            conn.execute(text("PRAGMA foreign_keys=ON"))
 
 
 def run_migrations(db_path: Path) -> None:
