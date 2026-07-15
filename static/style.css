@@ -1247,6 +1247,7 @@ tr:hover td { background: var(--row-hover); }
 }
 
 .status-done { background: rgba(0,184,148,0.15); color: var(--green); }
+.status-downloaded { background: rgba(231, 76, 60, 0.15); color: var(--red); }
 .status-pending { background: rgba(253,203,110,0.15); color: var(--yellow); }
 
 .video-title {
@@ -1255,6 +1256,11 @@ tr:hover td { background: var(--row-hover); }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.video-title-downloaded {
+  color: var(--red);
+  font-weight: 600;
 }
 
 .video-id { font-size: 11px; color: var(--text-muted); }

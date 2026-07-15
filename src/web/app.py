@@ -50,6 +50,8 @@ from ..profile_folders import (
 )
 from ..services import (
     delete_profile,
+    delete_video,
+    delete_videos,
     download_videos,
     get_hero_videos,
     get_profile,
@@ -279,6 +281,11 @@ class DownloadRequest(BaseModel):
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     apply_filters: bool = False
+
+
+class DeleteVideosRequest(BaseModel):
+    video_ids: list[int] = Field(min_length=1)
+    delete_files: bool = True
 
 
 class GmvTextRequest(BaseModel):
@@ -806,6 +813,38 @@ def api_delete_profile(
     except ValueError as e:
         raise HTTPException(404, str(e))
     return result
+
+
+@app.delete("/api/videos/{video_id}")
+def api_delete_video(
+    video_id: int,
+    delete_file: bool = True,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    try:
+        return delete_video(session, video_id, user_id=user_id, delete_file=delete_file)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@app.post("/api/profiles/{profile_id}/videos/delete")
+def api_delete_videos(
+    profile_id: int,
+    req: DeleteVideosRequest,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    try:
+        return delete_videos(
+            session,
+            profile_id,
+            req.video_ids,
+            user_id=user_id,
+            delete_files=req.delete_files,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.patch("/api/videos/{video_id}/metrics")

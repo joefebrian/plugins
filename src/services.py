@@ -9,7 +9,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from .db.models import Profile, Video, VideoFacebookUpload, VideoYouTubeUpload
+from .db.models import Profile, Video, VideoFacebookUpload, VideoThreadsPost, VideoYouTubeUpload
 from .downloader import VideoDownloader
 from .scrapers.instagram import InstagramScraper
 from .scrapers.tiktok import TikTokScraper
@@ -526,6 +526,92 @@ def delete_profile(
         "deleted_profile": profile.username,
         "deleted_videos": video_count,
         "deleted_files": file_count,
+    }
+
+
+def _remove_video_file(video: Video) -> bool:
+    if not video.file_path:
+        return False
+    path = Path(video.file_path)
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
+
+
+def _purge_video_relations(session: Session, video_id: int) -> None:
+    session.query(VideoYouTubeUpload).filter_by(video_id=video_id).delete(synchronize_session=False)
+    session.query(VideoFacebookUpload).filter_by(video_id=video_id).delete(synchronize_session=False)
+    session.query(VideoThreadsPost).filter_by(video_id=video_id).delete(synchronize_session=False)
+
+
+def _refresh_profile_video_count(session: Session, profile: Profile) -> None:
+    profile.video_count = session.query(Video).filter_by(profile_id=profile.id).count()
+
+
+def delete_video(
+    session: Session,
+    video_id: int,
+    *,
+    user_id: int | None = None,
+    delete_file: bool = True,
+) -> dict:
+    video = session.query(Video).filter_by(id=video_id).first()
+    if not video:
+        raise ValueError("Video tidak ditemukan")
+
+    profile = get_profile(session, video.profile_id, user_id=user_id)
+    if not profile:
+        raise ValueError("Video tidak ditemukan")
+
+    platform_video_id = video.platform_video_id
+    file_deleted = _remove_video_file(video) if delete_file else False
+    _purge_video_relations(session, video.id)
+    session.delete(video)
+    _refresh_profile_video_count(session, profile)
+    session.commit()
+
+    return {
+        "deleted_video_id": video_id,
+        "platform_video_id": platform_video_id,
+        "file_deleted": file_deleted,
+        "profile_id": profile.id,
+    }
+
+
+def delete_videos(
+    session: Session,
+    profile_id: int,
+    video_ids: list[int],
+    *,
+    user_id: int | None = None,
+    delete_files: bool = True,
+) -> dict:
+    profile = get_profile(session, profile_id, user_id=user_id)
+    if not profile:
+        raise ValueError("Profil tidak ditemukan")
+    if not video_ids:
+        raise ValueError("Pilih video dulu")
+
+    deleted = 0
+    files_removed = 0
+    for vid in video_ids:
+        video = session.query(Video).filter_by(id=vid, profile_id=profile_id).first()
+        if not video:
+            continue
+        if delete_files and _remove_video_file(video):
+            files_removed += 1
+        _purge_video_relations(session, video.id)
+        session.delete(video)
+        deleted += 1
+
+    _refresh_profile_video_count(session, profile)
+    session.commit()
+
+    return {
+        "deleted": deleted,
+        "files_removed": files_removed,
+        "profile_id": profile_id,
     }
 
 
