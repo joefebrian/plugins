@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -45,7 +46,7 @@ def platform_metrics(
     platform: str,
     *,
     live: bool = True,
-    cookies_file: str | None = None,
+    cookies_dir: Path | None = None,
 ) -> dict[str, Any]:
     platform = platform.lower().strip()
     if platform not in MONITORED_PLATFORMS:
@@ -54,7 +55,7 @@ def platform_metrics(
     accounts = list_accounts(session, user_id, platform)
     if live:
         for acc in accounts:
-            refresh_account_metrics(session, acc, cookies_file=cookies_file)
+            refresh_account_metrics(session, acc, cookies_dir=cookies_dir)
         accounts = list_accounts(session, user_id, platform)
 
     rows = _rows_from_accounts(accounts)
@@ -71,13 +72,13 @@ def monitoring_overview(
     user_id: int,
     *,
     live: bool = True,
-    cookies_file: str | None = None,
+    cookies_dir: Path | None = None,
 ) -> dict[str, Any]:
     platforms: dict[str, dict] = {}
     all_accounts: list[dict] = []
 
     for platform in MONITORED_PLATFORMS:
-        data = platform_metrics(session, user_id, platform, live=live, cookies_file=cookies_file)
+        data = platform_metrics(session, user_id, platform, live=live, cookies_dir=cookies_dir)
         platforms[platform] = {
             "coming_soon": False,
             "totals": data["totals"],

@@ -60,6 +60,7 @@ from ...youtube.client import (
 )
 from ...youtube.quota import get_oauth_app, is_app_available, pick_available_app, record_grant
 from ..auth_deps import get_current_user_id
+from ...cookies_util import resolve_cookies_file
 from ..deps import COOKIES_DIR, DB_PATH, DOWNLOAD_DIR, get_session
 
 router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
@@ -81,12 +82,8 @@ class TwitterConfigRequest(BaseModel):
     redirect_uri: Optional[str] = None
 
 
-def _cookies_path() -> Optional[str]:
-    tiktok_only = COOKIES_DIR / "tiktok_only.txt"
-    if tiktok_only.exists():
-        return str(tiktok_only)
-    path = COOKIES_DIR / "cookies.txt"
-    return str(path) if path.exists() else None
+def _cookies_path_for(platform: str) -> Optional[str]:
+    return resolve_cookies_file(COOKIES_DIR, platform)
 
 
 def _redirect_base(request: Request, env_key: str, path: str) -> str:
@@ -115,7 +112,7 @@ def api_monitoring_overview(
     user_id: int = Depends(get_current_user_id),
     session: Session = Depends(get_session),
 ):
-    return monitoring_overview(session, user_id, live=live, cookies_file=_cookies_path())
+    return monitoring_overview(session, user_id, live=live, cookies_dir=COOKIES_DIR)
 
 
 @router.get("/accounts")
@@ -148,7 +145,7 @@ def api_refresh_monitoring_account(
     acc = get_account(session, account_id, user_id)
     if not acc:
         raise HTTPException(404, "Akun monitoring tidak ditemukan")
-    refresh_account_metrics(session, acc, cookies_file=_cookies_path())
+    refresh_account_metrics(session, acc, cookies_dir=COOKIES_DIR)
     return account_to_dict(acc)
 
 
@@ -161,7 +158,7 @@ def api_monitoring_connect_tiktok(
     session: Session = Depends(get_session),
 ):
     try:
-        data = scan_username_metrics("tiktok", req.username, _cookies_path())
+        data = scan_username_metrics("tiktok", req.username, _cookies_path_for("tiktok"))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     acc = upsert_account(
@@ -174,7 +171,7 @@ def api_monitoring_connect_tiktok(
         handle=data["handle"],
         profile_url=data["profile_url"],
     )
-    refresh_account_metrics(session, acc, cookies_file=_cookies_path())
+    refresh_account_metrics(session, acc, cookies_dir=COOKIES_DIR)
     return {"ok": True, "account": account_to_dict(acc)}
 
 
@@ -185,7 +182,7 @@ def api_monitoring_connect_kuaishou(
     session: Session = Depends(get_session),
 ):
     try:
-        data = scan_username_metrics("kuaishou", req.username, _cookies_path())
+        data = scan_username_metrics("kuaishou", req.username, _cookies_path_for("kuaishou"))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     acc = upsert_account(
@@ -198,7 +195,7 @@ def api_monitoring_connect_kuaishou(
         handle=data["handle"],
         profile_url=data["profile_url"],
     )
-    refresh_account_metrics(session, acc, cookies_file=_cookies_path())
+    refresh_account_metrics(session, acc, cookies_dir=COOKIES_DIR)
     return {"ok": True, "account": account_to_dict(acc)}
 
 
@@ -209,7 +206,7 @@ def api_monitoring_connect_rednote(
     session: Session = Depends(get_session),
 ):
     try:
-        data = scan_username_metrics("rednote", req.username, _cookies_path())
+        data = scan_username_metrics("rednote", req.username, _cookies_path_for("rednote"))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     acc = upsert_account(
@@ -222,7 +219,7 @@ def api_monitoring_connect_rednote(
         handle=data["handle"],
         profile_url=data["profile_url"],
     )
-    refresh_account_metrics(session, acc, cookies_file=_cookies_path())
+    refresh_account_metrics(session, acc, cookies_dir=COOKIES_DIR)
     return {"ok": True, "account": account_to_dict(acc)}
 
 
@@ -233,7 +230,7 @@ def api_monitoring_connect_instagram(
     session: Session = Depends(get_session),
 ):
     try:
-        data = scan_username_metrics("instagram", req.username, _cookies_path())
+        data = scan_username_metrics("instagram", req.username, _cookies_path_for("instagram"))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     acc = upsert_account(
@@ -246,7 +243,7 @@ def api_monitoring_connect_instagram(
         handle=data["handle"],
         profile_url=data["profile_url"],
     )
-    refresh_account_metrics(session, acc, cookies_file=_cookies_path())
+    refresh_account_metrics(session, acc, cookies_dir=COOKIES_DIR)
     return {"ok": True, "account": account_to_dict(acc)}
 
 
@@ -593,7 +590,7 @@ def api_monitoring_platform(
         )
     try:
         return platform_metrics(
-            session, user_id, platform, live=live, cookies_file=_cookies_path()
+            session, user_id, platform, live=live, cookies_dir=COOKIES_DIR
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e

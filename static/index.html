@@ -71,6 +71,10 @@
           <span class="nav-icon"><i data-lucide="activity"></i></span>
           <span>Monitoring</span>
         </button>
+        <button type="button" class="nav-item" id="nav-cookies" data-view="cookies">
+          <span class="nav-icon"><i data-lucide="cookie"></i></span>
+          <span>Cookies</span>
+        </button>
         <button type="button" class="nav-item" id="nav-settings" data-view="settings">
           <span class="nav-icon"><i data-lucide="settings"></i></span>
           <span>Settings</span>
@@ -96,11 +100,10 @@
             <span id="theme-toggle-label">Light mode</span>
           </button>
         </div>
-        <button class="btn btn-ghost btn-block" id="btn-cookies">Upload Cookies TikTok</button>
+        <button type="button" class="btn btn-ghost btn-block" id="btn-cookies-sidebar">Cookies Platform</button>
         <p class="sidebar-hint" id="cookies-status">Cek status cookies...</p>
-        <p class="sidebar-hint">Download video HQ otomatis (tanpa watermark)</p>
         <button class="btn btn-ghost btn-block" id="btn-logout">Keluar</button>
-        <input type="file" id="cookies-input" accept=".txt" hidden />
+        <input type="file" id="cookies-import-input" accept=".txt" hidden />
       </div>
     </aside>
 
@@ -809,6 +812,43 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
             </div>
           </section>
         </div>
+      </div>
+
+      <div id="view-cookies" class="hidden">
+        <header class="page-header">
+          <div>
+            <p class="page-eyebrow">Integrasi</p>
+            <h2>Cookies Platform</h2>
+            <p class="page-desc">Upload cookies per platform untuk scan profil &amp; download video. Setiap platform punya file terpisah.</p>
+          </div>
+          <div class="page-header-actions">
+            <button type="button" class="btn btn-secondary" id="btn-cookies-refresh">↻ Refresh Status</button>
+          </div>
+        </header>
+
+        <div id="cookies-summary-cards" class="oauth-summary-grid"></div>
+
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <h3>Import Sekaligus</h3>
+            <span class="badge badge-muted">Opsional</span>
+          </div>
+          <div class="panel-body">
+            <p class="modal-desc">Upload satu file export Netscape dari browser — sistem otomatis memisahkan cookies per platform (TikTok, Instagram, Kuaishou, RedNote).</p>
+            <button type="button" class="btn btn-primary" id="btn-cookies-import">Upload cookies.txt</button>
+          </div>
+        </section>
+
+        <section class="panel panel-wide">
+          <div class="panel-header">
+            <h3>Per Platform</h3>
+            <span class="badge" id="cookies-platform-count">0 platform</span>
+          </div>
+          <div class="panel-body">
+            <div class="cookies-platform-grid" id="cookies-platform-grid"></div>
+            <p class="modal-desc oauth-table-hint">Format: Netscape cookies (.txt) dari extension seperti Get cookies.txt LOCALLY, EditThisCookie, atau Cookie-Editor.</p>
+          </div>
+        </section>
       </div>
 
       <div id="view-settings" class="hidden">

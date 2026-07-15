@@ -23,7 +23,15 @@ from ..auth import (
     record_failed_login,
     setup_auth,
 )
-from ..cookies_util import filter_tiktok_cookies, validate_tiktok_cookies
+from ..cookies_util import (
+    all_platforms_status,
+    cookies_summary,
+    delete_platform_cookies,
+    get_cookie_platform,
+    import_cookies_export,
+    resolve_cookies_file,
+    save_platform_cookies,
+)
 from ..db.models import init_db, run_migrations
 from ..gmv.importer import import_gmv_csv, import_gmv_text
 from ..gmv.tiktok_shop import (
@@ -384,12 +392,8 @@ class YouTubeABTestRequest(BaseModel):
     auto_thumbnail: bool = False
 
 
-def _cookies_path() -> Optional[str]:
-    tiktok_only = COOKIES_DIR / "tiktok_only.txt"
-    if tiktok_only.exists():
-        return str(tiktok_only)
-    path = COOKIES_DIR / "cookies.txt"
-    return str(path) if path.exists() else None
+def _cookies_path_for(platform: str) -> Optional[str]:
+    return resolve_cookies_file(COOKIES_DIR, platform)
 
 
 def _run_scan(
@@ -398,7 +402,7 @@ def _run_scan(
     user_id: int,
     cookies_file: Optional[str] = None,
 ) -> dict:
-    cookies_file = cookies_file or _cookies_path()
+    cookies_file = cookies_file or _cookies_path_for(platform)
     session = init_db(DB_PATH)
     try:
         result = sync_profile_videos(session, platform, username, cookies_file, user_id=user_id)
@@ -435,12 +439,12 @@ def _run_download(
     date_to: Optional[str] = None,
     apply_filters: bool = False,
 ) -> dict:
-    cookies_file = cookies_file or _cookies_path()
     session = init_db(DB_PATH)
     try:
         profile = get_profile(session, profile_id, user_id=user_id)
         if not profile:
             raise ValueError("Profil tidak ditemukan")
+        cookies_file = cookies_file or _cookies_path_for(profile.platform)
         filter_status = None if not status or status == "all" else status
         return download_videos(
             session,
@@ -1512,42 +1516,95 @@ def api_sync_gmv_api(profile_id: int, req: TikTokShopSyncRequest):
     return job_manager.to_dict(job)
 
 
+@app.get("/api/cookies")
+def api_cookies_platforms():
+    return {"platforms": all_platforms_status(COOKIES_DIR)}
+
+
 @app.get("/api/cookies/status")
 def api_cookies_status():
-    raw = COOKIES_DIR / "cookies.txt"
-    filtered = COOKIES_DIR / "tiktok_only.txt"
-    status = validate_tiktok_cookies(filtered if filtered.exists() else raw)
-    return status
+    summary = cookies_summary(COOKIES_DIR)
+    tiktok = next((p for p in summary["platforms"] if p["platform"] == "tiktok"), None)
+    return {
+        **summary,
+        "tiktok_cookies": tiktok["count"] if tiktok else 0,
+    }
 
 
-@app.post("/api/cookies")
-async def api_upload_cookies(file: UploadFile = File(...)):
+@app.post("/api/cookies/import")
+async def api_import_cookies(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(400, "File wajib diisi")
 
     COOKIES_DIR.mkdir(parents=True, exist_ok=True)
-    raw = COOKIES_DIR / "cookies.txt"
-    filtered = COOKIES_DIR / "tiktok_only.txt"
-
-    with raw.open("wb") as f:
+    tmp = COOKIES_DIR / "_import_tmp.txt"
+    with tmp.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    count = filter_tiktok_cookies(raw, filtered)
-    status = validate_tiktok_cookies(filtered)
+    try:
+        results = import_cookies_export(COOKIES_DIR, tmp)
+    except Exception as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        tmp.unlink(missing_ok=True)
 
-    if count == 0:
+    uploaded = [pid for pid, row in results.items() if row["count"] > 0]
+    if not uploaded:
         raise HTTPException(
             400,
-            "Tidak ada cookie TikTok di file ini. "
-            "Buka tiktok.com di browser → export cookies dari situ saja.",
+            "Tidak ada cookie platform yang dikenali. "
+            "Export dari browser setelah login TikTok/Instagram/Kuaishou/RedNote.",
         )
 
+    summary = cookies_summary(COOKIES_DIR)
     return {
-        "path": str(filtered),
-        "tiktok_cookies": count,
-        "message": status["message"],
-        "ok": status["ok"],
+        "ok": summary["ok"],
+        "message": f"Import selesai — {len(uploaded)} platform: {', '.join(uploaded)}",
+        "results": results,
+        "platforms": summary["platforms"],
     }
+
+
+@app.post("/api/cookies/{platform}")
+async def api_upload_platform_cookies(platform: str, file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(400, "File wajib diisi")
+    try:
+        get_cookie_platform(platform)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    COOKIES_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = COOKIES_DIR / f"_upload_{platform}.txt"
+    with tmp.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    try:
+        result = save_platform_cookies(COOKIES_DIR, platform, tmp)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    return result
+
+
+@app.post("/api/cookies")
+async def api_upload_cookies_legacy(file: UploadFile = File(...)):
+    """Backward-compatible bulk import (same as /api/cookies/import)."""
+    return await api_import_cookies(file)
+
+
+@app.delete("/api/cookies/{platform}")
+def api_delete_platform_cookies(platform: str):
+    try:
+        get_cookie_platform(platform)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    removed = delete_platform_cookies(COOKIES_DIR, platform)
+    if not removed:
+        raise HTTPException(404, f"Cookies {platform} tidak ditemukan")
+    return {"ok": True, "platform": platform}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -1578,21 +1635,14 @@ def api_direct_download_video(
     session: Session = Depends(get_session),
 ):
     video, profile = _get_owned_video(session, video_id, user_id)
-    cookies_file = None
-    tiktok_only = COOKIES_DIR / "tiktok_only.txt"
-    if tiktok_only.exists():
-        cookies_file = str(tiktok_only)
-    else:
-        raw = COOKIES_DIR / "cookies.txt"
-        if raw.exists():
-            cookies_file = str(raw)
+    cookies_file = _cookies_path_for(profile.platform)
 
     try:
         source_url = resolve_direct_download_url(
             video,
             profile.platform,
             quality=quality,
-            cookies_file=cookies_file if profile.platform in ("instagram", "kuaishou", "rednote") else None,
+            cookies_file=cookies_file,
             principal_id=profile.username if profile.platform in ("kuaishou", "rednote") else None,
         )
     except ValueError as e:

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy.orm import Session
+
+from ..cookies_util import resolve_cookies_file
 
 from ..db.models import MonitoringAccount
 from ..facebook.client import FacebookAPIError, fetch_page_metrics
@@ -51,6 +54,7 @@ def refresh_account_metrics(
     acc: MonitoringAccount,
     *,
     cookies_file: str | None = None,
+    cookies_dir: Path | None = None,
 ) -> MonitoringAccount:
     error = None
     try:
@@ -109,10 +113,13 @@ def refresh_account_metrics(
             )
 
         if acc.platform in ("tiktok", "instagram", "kuaishou", "rednote"):
+            platform_cookies = cookies_file
+            if not platform_cookies and cookies_dir:
+                platform_cookies = resolve_cookies_file(cookies_dir, acc.platform)
             data = scan_username_metrics(
                 acc.platform,
                 acc.handle or acc.external_id,
-                cookies_file,
+                platform_cookies,
             )
             return update_metrics(
                 session,

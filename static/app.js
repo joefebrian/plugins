@@ -1342,6 +1342,7 @@ function switchView(view, opts = {}) {
     facebook: '#view-facebook',
     threads: '#view-threads',
     settings: '#view-settings',
+    cookies: '#view-cookies',
     monitoring: '#view-monitoring',
     'oauth-monitoring': '#view-oauth-monitoring',
   };
@@ -1374,6 +1375,7 @@ function switchView(view, opts = {}) {
   if (view === 'facebook') loadFacebookPage();
   if (view === 'threads') loadThreadsPage();
   if (view === 'settings') loadSettingsPage();
+  if (view === 'cookies') loadCookiesPage();
   if (view === 'oauth-monitoring') {
     loadOAuthMonitoringPage();
     oauthMonitoringTimer = setInterval(loadOAuthMonitoringPage, 30000);
@@ -3313,7 +3315,116 @@ $('#filter-sort')?.addEventListener('change', () => {
     }
   });
 
-$('#btn-cookies').onclick = () => $('#cookies-input').click();
+const COOKIE_PLATFORM_ICONS = {
+  tiktok: '🎵',
+  instagram: '📸',
+  kuaishou: '🎬',
+  rednote: '📕',
+};
+
+function renderCookiesSummaryCards(summary) {
+  const el = $('#cookies-summary-cards');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="oauth-summary-card">
+      <div class="osc-label">Platform Siap</div>
+      <div class="osc-value">${summary?.ready_count ?? 0}/${summary?.total ?? 0}</div>
+    </div>
+    <div class="oauth-summary-card ok">
+      <div class="osc-label">Sudah Upload</div>
+      <div class="osc-value">${summary?.uploaded_count ?? 0}</div>
+    </div>
+    <div class="oauth-summary-card">
+      <div class="osc-label">Status</div>
+      <div class="osc-value" style="font-size:16px">${summary?.message || '-'}</div>
+    </div>
+  `;
+}
+
+function renderCookiesPlatformGrid(platforms = []) {
+  const grid = $('#cookies-platform-grid');
+  const countEl = $('#cookies-platform-count');
+  if (!grid) return;
+  if (countEl) countEl.textContent = `${platforms.length} platform`;
+
+  grid.innerHTML = platforms.map((p) => {
+    const icon = COOKIE_PLATFORM_ICONS[p.platform] || '🍪';
+    const cardClass = p.ok ? 'ok' : (p.count > 0 ? 'warn' : '');
+    const statusClass = p.ok ? 'ok' : 'warn';
+    const updated = p.updated_at ? `Diupdate ${new Date(p.updated_at).toLocaleString('id-ID')}` : 'Belum pernah upload';
+    return `
+      <article class="cookie-platform-card ${cardClass}">
+        <div class="cookie-platform-head">
+          <div>
+            <div class="cookie-platform-title">${icon} ${p.label}</div>
+            <div class="cookie-platform-site">${p.export_site || ''}</div>
+          </div>
+          <span class="badge ${p.ok ? '' : 'badge-muted'}">${p.count || 0} cookie</span>
+        </div>
+        <div class="cookie-platform-status ${statusClass}">${p.message}</div>
+        <div class="cookie-platform-meta">${p.hint || ''}</div>
+        <div class="cookie-platform-meta">${updated}</div>
+        <div class="cookie-platform-actions">
+          <button type="button" class="btn btn-sm btn-primary" data-cookie-upload="${p.platform}">Upload</button>
+          ${p.count > 0 ? `<button type="button" class="btn btn-sm btn-ghost btn-danger" data-cookie-delete="${p.platform}">Hapus</button>` : ''}
+        </div>
+        <input type="file" class="cookie-platform-input" data-cookie-input="${p.platform}" accept=".txt" hidden />
+      </article>
+    `;
+  }).join('');
+
+  grid.querySelectorAll('[data-cookie-upload]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const platform = btn.dataset.cookieUpload;
+      grid.querySelector(`[data-cookie-input="${platform}"]`)?.click();
+    });
+  });
+
+  grid.querySelectorAll('.cookie-platform-input').forEach((input) => {
+    input.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      const platform = input.dataset.cookieInput;
+      e.target.value = '';
+      if (!file || !platform) return;
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const res = await api(`/cookies/${platform}`, { method: 'POST', body: fd });
+        showToast(`${res.label}: ${res.message} (${res.count} cookies)`);
+        await loadCookiesPage();
+        updateCookiesStatus();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+
+  grid.querySelectorAll('[data-cookie-delete]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const platform = btn.dataset.cookieDelete;
+      if (!platform || !confirm(`Hapus cookies ${platform}?`)) return;
+      try {
+        await api(`/cookies/${platform}`, { method: 'DELETE' });
+        showToast(`Cookies ${platform} dihapus`);
+        await loadCookiesPage();
+        updateCookiesStatus();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+}
+
+async function loadCookiesPage() {
+  try {
+    const data = await api('/cookies/status');
+    renderCookiesSummaryCards(data);
+    renderCookiesPlatformGrid(data.platforms || []);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
 async function updateCookiesStatus() {
   try {
     const s = await api('/cookies/status');
@@ -3324,19 +3435,29 @@ async function updateCookiesStatus() {
   } catch (_) {}
 }
 
-$('#cookies-input').onchange = async (e) => {
-  const file = e.target.files[0];
+async function importCookiesFile(file) {
   if (!file) return;
   const fd = new FormData();
   fd.append('file', file);
+  const res = await api('/cookies/import', { method: 'POST', body: fd });
+  showToast(res.message);
+  await loadCookiesPage();
+  updateCookiesStatus();
+}
+
+$('#btn-cookies-sidebar')?.addEventListener('click', () => switchView('cookies'));
+$('#btn-cookies-refresh')?.addEventListener('click', () => loadCookiesPage());
+$('#btn-cookies-import')?.addEventListener('click', () => $('#cookies-import-input')?.click());
+$('#cookies-import-input')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
   try {
-    const res = await api('/cookies', { method: 'POST', body: fd });
-    showToast(`${res.message} (${res.tiktok_cookies} cookies TikTok)`);
-    updateCookiesStatus();
+    await importCookiesFile(file);
   } catch (err) {
     showToast(err.message, 'error');
   }
-};
+});
 
 $('#btn-logout').onclick = async () => {
   try {
@@ -3368,7 +3489,7 @@ $('#btn-logout').onclick = async () => {
     const initView = ytParams.get('view');
     const monPlatform = ytParams.get('platform') || 'overview';
     const monSection = ytParams.get('section') || 'oauth';
-    if (['youtube', 'facebook', 'threads', 'oauth-monitoring', 'settings', 'monitoring'].includes(initView)) {
+    if (['youtube', 'facebook', 'threads', 'oauth-monitoring', 'settings', 'cookies', 'monitoring'].includes(initView)) {
       if (initView === 'monitoring') {
         switchView('monitoring', { monitoringSection: monSection, monitoringPlatform: monPlatform });
       } else {
