@@ -12,6 +12,7 @@ import yt_dlp
 from .db.models import Video
 from .downloader import FORMAT_PRESETS, _sanitize_filename_stem
 from .scrapers.kuaishou_api import resolve_kuaishou_download_url
+from .scrapers.rednote_api import resolve_rednote_download_url
 from .scrapers.tikwm import get_tiktok_video_url
 
 
@@ -62,6 +63,14 @@ def resolve_direct_download_url(
             principal_id,
             photo_id=video.platform_video_id,
             cookies_file=cookies_file,
+        )
+
+    if platform == "rednote":
+        return resolve_rednote_download_url(
+            video.url,
+            note_id=video.platform_video_id,
+            cookies_file=cookies_file,
+            user_id=principal_id or "",
         )
 
     opts: dict = {

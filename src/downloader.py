@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from .db.models import Video
 from .scrapers.kuaishou_api import resolve_kuaishou_download_url
+from .scrapers.rednote_api import resolve_rednote_download_url
 from .scrapers.tikwm import download_file, get_tiktok_video_url
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -124,6 +125,21 @@ class VideoDownloader:
             opts["cookiefile"] = self.cookies_file
         return opts
 
+    def _download_rednote(self, video: Video, target_dir: Path, username: str) -> Path:
+        stem = _sanitize_filename_stem(video.title or "", video.platform_video_id)
+        file_path = _unique_file_path(target_dir, stem)
+        source_url = resolve_rednote_download_url(
+            video.url,
+            note_id=video.platform_video_id,
+            cookies_file=self.cookies_file,
+            user_id=username,
+        )
+        download_file(source_url, str(file_path))
+        if not self._is_video_file(file_path):
+            file_path.unlink(missing_ok=True)
+            raise ValueError("Download RedNote gagal — file bukan video valid")
+        return file_path
+
     def _download_kuaishou(self, video: Video, target_dir: Path, username: str) -> Path:
         stem = _sanitize_filename_stem(video.title or "", video.platform_video_id)
         file_path = _unique_file_path(target_dir, stem)
@@ -182,6 +198,8 @@ class VideoDownloader:
             file_path = self._download_tiktok(video, target_dir)
         elif platform == "kuaishou":
             file_path = self._download_kuaishou(video, target_dir, username)
+        elif platform == "rednote":
+            file_path = self._download_rednote(video, target_dir, username)
         else:
             file_path = self._download_via_ytdlp(video, target_dir)
 

@@ -758,8 +758,8 @@ def api_heroes(
 
 @app.post("/api/scan")
 def api_scan(req: ScanRequest, user_id: int = Depends(get_current_user_id)):
-    if req.platform not in ("tiktok", "instagram", "kuaishou"):
-        raise HTTPException(400, "Platform harus tiktok, instagram, atau kuaishou")
+    if req.platform not in ("tiktok", "instagram", "kuaishou", "rednote"):
+        raise HTTPException(400, "Platform harus tiktok, instagram, kuaishou, atau rednote")
 
     username = get_scraper(req.platform).normalize_username(req.username)
     if not username:
@@ -1592,8 +1592,8 @@ def api_direct_download_video(
             video,
             profile.platform,
             quality=quality,
-            cookies_file=cookies_file if profile.platform in ("instagram", "kuaishou") else None,
-            principal_id=profile.username if profile.platform == "kuaishou" else None,
+            cookies_file=cookies_file if profile.platform in ("instagram", "kuaishou", "rednote") else None,
+            principal_id=profile.username if profile.platform in ("kuaishou", "rednote") else None,
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -1605,6 +1605,7 @@ def api_direct_download_video(
         "tiktok": "https://www.tiktok.com/",
         "instagram": "https://www.instagram.com/",
         "kuaishou": "https://www.kuaishou.com/",
+        "rednote": "https://www.rednote.com/",
     }
     referer = referers.get(profile.platform, "https://www.tiktok.com/")
     headers = {

@@ -108,7 +108,7 @@ def refresh_account_metrics(
                 uploads_count=data.get("uploads_count"),
             )
 
-        if acc.platform in ("tiktok", "instagram", "kuaishou"):
+        if acc.platform in ("tiktok", "instagram", "kuaishou", "rednote"):
             data = scan_username_metrics(
                 acc.platform,
                 acc.handle or acc.external_id,

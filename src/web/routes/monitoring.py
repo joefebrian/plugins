@@ -202,6 +202,30 @@ def api_monitoring_connect_kuaishou(
     return {"ok": True, "account": account_to_dict(acc)}
 
 
+@router.post("/rednote/connect")
+def api_monitoring_connect_rednote(
+    req: UsernameConnectRequest,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    try:
+        data = scan_username_metrics("rednote", req.username, _cookies_path())
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    acc = upsert_account(
+        session,
+        user_id=user_id,
+        platform="rednote",
+        external_id=data["external_id"],
+        label=req.label or data["name"],
+        name=data["name"],
+        handle=data["handle"],
+        profile_url=data["profile_url"],
+    )
+    refresh_account_metrics(session, acc, cookies_file=_cookies_path())
+    return {"ok": True, "account": account_to_dict(acc)}
+
+
 @router.post("/instagram/connect")
 def api_monitoring_connect_instagram(
     req: UsernameConnectRequest,

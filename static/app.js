@@ -231,7 +231,7 @@ function buildProfileItemEl(p) {
   const el = document.createElement('div');
   el.className = 'profile-item' + (p.id === currentProfileId ? ' active' : '');
   el.dataset.id = p.id;
-  const icons = { tiktok: '🎵', instagram: '📸', kuaishou: '🎬' };
+  const icons = { tiktok: '🎵', instagram: '📸', kuaishou: '🎬', rednote: '📕' };
   const icon = icons[p.platform] || '📱';
   el.innerHTML = `
     <div class="pi-icon">${icon}</div>
@@ -733,6 +733,12 @@ function normalizeUsernameInput(value) {
   const ksLegacy = [...raw.matchAll(/(?:gifshow|chenzhongtech)\.com\/user\/([^/?#]+)/gi)].map((m) => m[1]);
   if (ksLegacy.length) return ksLegacy[ksLegacy.length - 1];
 
+  const rn = [...raw.matchAll(/rednote\.com\/user\/profile\/([^/?#]+)/gi)].map((m) => m[1]);
+  if (rn.length) return rn[rn.length - 1];
+
+  const xhs = [...raw.matchAll(/xiaohongshu\.com\/user\/profile\/([^/?#]+)/gi)].map((m) => m[1]);
+  if (xhs.length) return xhs[xhs.length - 1];
+
   return raw.replace(/^@/, '').split('/')[0].split('?')[0];
 }
 
@@ -918,6 +924,7 @@ const MONITORING_PLATFORM_LABELS = {
   facebook: 'Facebook',
   tiktok: 'TikTok',
   kuaishou: 'Kuaishou',
+  rednote: 'RedNote',
   twitter: 'X / Twitter',
 };
 
@@ -957,6 +964,7 @@ function setMonitoringPlatform(platform) {
       facebook: 'Connect Facebook Page via OAuth — khusus monitoring.',
       tiktok: 'Tambah username TikTok untuk dipantau — scan tanpa masuk Dashboard Profil.',
       kuaishou: 'Tambah User ID Kuaishou untuk dipantau — butuh cookies kuaishou.com.',
+      rednote: 'Tambah User ID RedNote untuk dipantau — butuh cookies rednote.com / xiaohongshu.com.',
       twitter: 'Connect akun X via OAuth 2.0 — isi API credentials dulu.',
     };
     desc.textContent = hints[monitoringPlatform] || hints.overview;
@@ -996,6 +1004,7 @@ function monitoringPlatformIcon(platform) {
     instagram: 'IG',
     tiktok: 'TT',
     kuaishou: 'KS',
+    rednote: 'RN',
     facebook: 'FB',
     threads: '@',
     twitter: 'X',
