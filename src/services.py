@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from .db.models import Profile, Video, VideoFacebookUpload, VideoThreadsPost, VideoYouTubeUpload
 from .downloader import VideoDownloader
 from .scrapers.instagram import InstagramScraper
+from .scrapers.kuaishou import KuaishouScraper
 from .scrapers.tiktok import TikTokScraper
 
 
@@ -19,9 +20,10 @@ def get_scraper(platform: str, cookies_file: str | None = None):
     scrapers = {
         "tiktok": TikTokScraper,
         "instagram": InstagramScraper,
+        "kuaishou": KuaishouScraper,
     }
     if platform not in scrapers:
-        raise ValueError(f"Platform tidak didukung: {platform}. Gunakan: tiktok, instagram")
+        raise ValueError(f"Platform tidak didukung: {platform}. Gunakan: tiktok, instagram, kuaishou")
     return scrapers[platform](cookies_file=cookies_file)
 
 

@@ -11,6 +11,7 @@ import yt_dlp
 
 from .db.models import Video
 from .downloader import FORMAT_PRESETS, _sanitize_filename_stem
+from .scrapers.kuaishou_api import resolve_kuaishou_download_url
 from .scrapers.tikwm import get_tiktok_video_url
 
 
@@ -45,12 +46,23 @@ def resolve_direct_download_url(
     *,
     quality: str = "best",
     cookies_file: Optional[str] = None,
+    principal_id: Optional[str] = None,
 ) -> str:
     q = quality if quality in FORMAT_PRESETS else "best"
 
     if platform == "tiktok":
         meta = get_tiktok_video_url(video.url, q)
         return meta["download_url"]
+
+    if platform == "kuaishou":
+        if not principal_id:
+            raise ValueError("Profil Kuaishou tidak ditemukan untuk download")
+        return resolve_kuaishou_download_url(
+            video.url,
+            principal_id,
+            photo_id=video.platform_video_id,
+            cookies_file=cookies_file,
+        )
 
     opts: dict = {
         "quiet": True,

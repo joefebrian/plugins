@@ -1,4 +1,4 @@
-"""Scan TikTok/Instagram profiles for monitoring without touching Dashboard profiles."""
+"""Scan TikTok/Instagram/Kuaishou profiles for monitoring without touching Dashboard profiles."""
 
 from __future__ import annotations
 

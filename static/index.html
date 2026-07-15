@@ -880,6 +880,7 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
             <button type="button" class="monitoring-tab" data-monitoring-platform="threads">Threads</button>
             <button type="button" class="monitoring-tab" data-monitoring-platform="facebook">Facebook</button>
             <button type="button" class="monitoring-tab" data-monitoring-platform="tiktok">TikTok</button>
+            <button type="button" class="monitoring-tab" data-monitoring-platform="kuaishou">Kuaishou</button>
             <button type="button" class="monitoring-tab" data-monitoring-platform="twitter">X</button>
           </div>
 
@@ -1113,7 +1114,7 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
     <div class="modal-backdrop"></div>
     <div class="modal-content">
       <h3>Scan Profil Baru</h3>
-      <p class="modal-desc">Masukkan username TikTok atau Instagram untuk sync semua video.</p>
+      <p class="modal-desc">Masukkan username atau link profil TikTok, Instagram, atau Kuaishou untuk sync semua video.</p>
       <form id="form-scan">
         <label>Platform</label>
         <div class="platform-picker">
@@ -1125,9 +1126,14 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
             <input type="radio" name="platform" value="instagram" />
             <span>Instagram</span>
           </label>
+          <label class="platform-option">
+            <input type="radio" name="platform" value="kuaishou" />
+            <span>Kuaishou</span>
+          </label>
         </div>
-        <label>Username</label>
-        <input type="text" name="username" placeholder="username atau paste link profil" required />
+        <label>Username / User ID</label>
+        <input type="text" name="username" placeholder="username, user ID (3x...), atau paste link profil" required />
+        <p class="modal-desc">Kuaishou: paste link <code>kuaishou.com/profile/...</code> — butuh cookies kuaishou.com (upload di menu Cookies).</p>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" data-close> Batal</button>
           <button type="submit" class="btn btn-primary">Mulai Scan</button>

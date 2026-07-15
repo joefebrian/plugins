@@ -11,6 +11,7 @@ import yt_dlp
 from sqlalchemy.orm import Session
 
 from .db.models import Video
+from .scrapers.kuaishou_api import resolve_kuaishou_download_url
 from .scrapers.tikwm import download_file, get_tiktok_video_url
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -123,6 +124,21 @@ class VideoDownloader:
             opts["cookiefile"] = self.cookies_file
         return opts
 
+    def _download_kuaishou(self, video: Video, target_dir: Path, username: str) -> Path:
+        stem = _sanitize_filename_stem(video.title or "", video.platform_video_id)
+        file_path = _unique_file_path(target_dir, stem)
+        source_url = resolve_kuaishou_download_url(
+            video.url,
+            username,
+            photo_id=video.platform_video_id,
+            cookies_file=self.cookies_file,
+        )
+        download_file(source_url, str(file_path))
+        if not self._is_video_file(file_path):
+            file_path.unlink(missing_ok=True)
+            raise ValueError("Download Kuaishou gagal — file bukan video valid")
+        return file_path
+
     def _download_via_ytdlp(self, video: Video, target_dir: Path) -> Path:
         output_template = str(target_dir / f"{video.platform_video_id}.%(ext)s")
         with yt_dlp.YoutubeDL(self._yt_dlp_opts(output_template)) as ydl:
@@ -164,6 +180,8 @@ class VideoDownloader:
 
         if platform == "tiktok":
             file_path = self._download_tiktok(video, target_dir)
+        elif platform == "kuaishou":
+            file_path = self._download_kuaishou(video, target_dir, username)
         else:
             file_path = self._download_via_ytdlp(video, target_dir)
 

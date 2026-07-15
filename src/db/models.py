@@ -67,7 +67,7 @@ class Profile(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     folder_id: Mapped[Optional[int]] = mapped_column(ForeignKey("profile_folders.id"), nullable=True, index=True)
-    platform: Mapped[str] = mapped_column(String(20), nullable=False)  # tiktok | instagram
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)  # tiktok | instagram | kuaishou
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[str] = mapped_column(String(512), nullable=False)
     video_count: Mapped[int] = mapped_column(Integer, default=0)

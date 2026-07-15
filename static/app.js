@@ -231,7 +231,8 @@ function buildProfileItemEl(p) {
   const el = document.createElement('div');
   el.className = 'profile-item' + (p.id === currentProfileId ? ' active' : '');
   el.dataset.id = p.id;
-  const icon = p.platform === 'tiktok' ? '🎵' : '📸';
+  const icons = { tiktok: '🎵', instagram: '📸', kuaishou: '🎬' };
+  const icon = icons[p.platform] || '📱';
   el.innerHTML = `
     <div class="pi-icon">${icon}</div>
     <div class="pi-body">
@@ -726,6 +727,12 @@ function normalizeUsernameInput(value) {
   const tt = [...raw.matchAll(/tiktok\.com\/@?([A-Za-z0-9._]+)/gi)].map((m) => m[1]);
   if (tt.length) return tt[tt.length - 1];
 
+  const ks = [...raw.matchAll(/kuaishou\.com\/profile\/([^/?#]+)/gi)].map((m) => m[1]);
+  if (ks.length) return ks[ks.length - 1];
+
+  const ksLegacy = [...raw.matchAll(/(?:gifshow|chenzhongtech)\.com\/user\/([^/?#]+)/gi)].map((m) => m[1]);
+  if (ksLegacy.length) return ksLegacy[ksLegacy.length - 1];
+
   return raw.replace(/^@/, '').split('/')[0].split('?')[0];
 }
 
@@ -910,6 +917,7 @@ const MONITORING_PLATFORM_LABELS = {
   threads: 'Threads',
   facebook: 'Facebook',
   tiktok: 'TikTok',
+  kuaishou: 'Kuaishou',
   twitter: 'X / Twitter',
 };
 
@@ -948,6 +956,7 @@ function setMonitoringPlatform(platform) {
       threads: 'Connect akun Threads via OAuth — khusus monitoring.',
       facebook: 'Connect Facebook Page via OAuth — khusus monitoring.',
       tiktok: 'Tambah username TikTok untuk dipantau — scan tanpa masuk Dashboard Profil.',
+      kuaishou: 'Tambah User ID Kuaishou untuk dipantau — butuh cookies kuaishou.com.',
       twitter: 'Connect akun X via OAuth 2.0 — isi API credentials dulu.',
     };
     desc.textContent = hints[monitoringPlatform] || hints.overview;
@@ -986,6 +995,7 @@ function monitoringPlatformIcon(platform) {
     youtube: 'YT',
     instagram: 'IG',
     tiktok: 'TT',
+    kuaishou: 'KS',
     facebook: 'FB',
     threads: '@',
     twitter: 'X',

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .accounts import account_to_dict, list_accounts
 from .metrics import refresh_account_metrics
 
-MONITORED_PLATFORMS = ("youtube", "instagram", "tiktok", "facebook", "threads", "twitter")
+MONITORED_PLATFORMS = ("youtube", "instagram", "tiktok", "kuaishou", "facebook", "threads", "twitter")
 
 
 def _totals(accounts: list[dict]) -> dict[str, Any]:

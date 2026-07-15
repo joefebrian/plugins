@@ -758,8 +758,8 @@ def api_heroes(
 
 @app.post("/api/scan")
 def api_scan(req: ScanRequest, user_id: int = Depends(get_current_user_id)):
-    if req.platform not in ("tiktok", "instagram"):
-        raise HTTPException(400, "Platform harus tiktok atau instagram")
+    if req.platform not in ("tiktok", "instagram", "kuaishou"):
+        raise HTTPException(400, "Platform harus tiktok, instagram, atau kuaishou")
 
     username = get_scraper(req.platform).normalize_username(req.username)
     if not username:
@@ -1592,7 +1592,8 @@ def api_direct_download_video(
             video,
             profile.platform,
             quality=quality,
-            cookies_file=cookies_file if profile.platform == "instagram" else None,
+            cookies_file=cookies_file if profile.platform in ("instagram", "kuaishou") else None,
+            principal_id=profile.username if profile.platform == "kuaishou" else None,
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -1600,7 +1601,12 @@ def api_direct_download_video(
         raise HTTPException(400, f"Gagal mengambil video: {e}") from e
 
     filename = direct_download_filename(video)
-    referer = "https://www.tiktok.com/" if profile.platform == "tiktok" else "https://www.instagram.com/"
+    referers = {
+        "tiktok": "https://www.tiktok.com/",
+        "instagram": "https://www.instagram.com/",
+        "kuaishou": "https://www.kuaishou.com/",
+    }
+    referer = referers.get(profile.platform, "https://www.tiktok.com/")
     headers = {
         "Content-Disposition": content_disposition_attachment(filename),
         "Cache-Control": "no-store",

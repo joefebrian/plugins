@@ -7,6 +7,8 @@ import re
 _TIKTOK_HANDLE = re.compile(r"@([A-Za-z0-9._]+)")
 _INSTAGRAM_PATH = re.compile(r"instagram\.com/([A-Za-z0-9._]+)", re.I)
 _TIKTOK_PATH = re.compile(r"tiktok\.com/@?([A-Za-z0-9._]+)", re.I)
+_KUAISHOU_PROFILE = re.compile(r"kuaishou\.com/profile/([^/?#]+)", re.I)
+_KUAISHOU_USER = re.compile(r"(?:gifshow|chenzhongtech)\.com/user/([^/?#]+)", re.I)
 
 _IG_RESERVED = frozenset(
     {"p", "reel", "reels", "tv", "stories", "explore", "accounts", "direct", "about"}
@@ -54,3 +56,49 @@ def parse_instagram_username(value: str) -> str:
         return handle
 
     return raw.lstrip("@").strip().split("/")[0].split("?")[0]
+
+
+def parse_kuaishou_username(value: str) -> str:
+    raw = value.strip()
+    if not raw:
+        return raw
+
+    profiles = _KUAISHOU_PROFILE.findall(raw)
+    if profiles:
+        return profiles[-1]
+
+    legacy = _KUAISHOU_USER.findall(raw)
+    if legacy:
+        return legacy[-1]
+
+    handle = _last_handle(raw)
+    if handle:
+        return handle
+
+    cleaned = raw.lstrip("@").strip().split("/")[0].split("?")[0]
+    if cleaned and not cleaned.lower().startswith("http"):
+        return cleaned
+    return cleaned
+
+
+def parse_kuaishou_username(value: str) -> str:
+    raw = value.strip()
+    if not raw:
+        return raw
+
+    profiles = _KUAISHOU_PROFILE.findall(raw)
+    if profiles:
+        return profiles[-1]
+
+    legacy = _KUAISHOU_USER.findall(raw)
+    if legacy:
+        return legacy[-1]
+
+    handle = _last_handle(raw)
+    if handle:
+        return handle
+
+    cleaned = raw.lstrip("@").strip().split("/")[0].split("?")[0]
+    if cleaned and not cleaned.lower().startswith("http"):
+        return cleaned
+    return cleaned

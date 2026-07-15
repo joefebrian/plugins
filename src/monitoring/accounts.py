@@ -138,7 +138,7 @@ def account_to_dict(acc: MonitoringAccount) -> dict:
         "handle": acc.handle,
         "thumbnail": acc.thumbnail,
         "profile_url": acc.profile_url,
-        "connected": bool(acc.access_token or acc.platform in ("tiktok", "instagram")),
+        "connected": bool(acc.access_token or acc.platform in ("tiktok", "instagram", "kuaishou")),
         "followers": acc.followers,
         "views": acc.views,
         "uploads": acc.uploads_count,
