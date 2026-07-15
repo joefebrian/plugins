@@ -357,12 +357,138 @@ def build_note_url(
     return base
 
 
+def _parse_initial_state(html: str) -> dict:
+    marker = "window.__INITIAL_STATE__="
+    idx = html.find(marker)
+    if idx < 0:
+        raise RedNoteAPIError("Halaman video RedNote tidak berisi data — coba scan ulang profil.")
+    start = idx + len(marker)
+    end = html.find("</script>", start)
+    raw = html[start:end].strip().rstrip(";")
+    raw = re.sub(r"\bundefined\b", "null", raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RedNoteAPIError("Gagal membaca data video RedNote dari halaman.") from exc
+
+
+def _note_from_initial_state(state: dict, note_id: str) -> dict | None:
+    note_map = (state.get("note") or {}).get("noteDetailMap") or {}
+    if not isinstance(note_map, dict):
+        return None
+
+    entry = note_map.get(note_id)
+    if isinstance(entry, dict):
+        note = entry.get("note") if isinstance(entry.get("note"), dict) else entry
+        if isinstance(note, dict):
+            return note
+
+    for entry in note_map.values():
+        if not isinstance(entry, dict):
+            continue
+        note = entry.get("note") if isinstance(entry.get("note"), dict) else entry
+        if not isinstance(note, dict):
+            continue
+        nid = str(note.get("note_id") or note.get("noteId") or "")
+        if nid == note_id:
+            return note
+    return None
+
+
+def _fetch_explore_html(
+    note_id: str,
+    *,
+    xsec_token: str,
+    xsec_source: str,
+    cookies_file: str | None,
+    international: bool,
+) -> str:
+    cookie_header = cookies_header_from_file(cookies_file)
+    if not cookie_header:
+        raise RedNoteAPIError("Cookies RedNote belum di-upload.")
+
+    page_url = build_note_url(
+        note_id,
+        xsec_token=xsec_token,
+        xsec_source=xsec_source,
+        international=international,
+    )
+    bundle = _api_bundle(international=international)
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
+        "Cookie": cookie_header,
+        "Referer": bundle["referer"],
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        ),
+    }
+    try:
+        from curl_cffi import requests as curl_requests
+
+        resp = curl_requests.get(
+            page_url,
+            headers=headers,
+            impersonate="chrome131",
+            timeout=30,
+        )
+        if resp.status_code >= 400:
+            raise RedNoteAPIError(f"Halaman video RedNote tidak bisa dibuka (HTTP {resp.status_code}).")
+        return resp.text
+    except ImportError:
+        import urllib.request
+
+        req = urllib.request.Request(page_url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=30) as raw:
+            return raw.read().decode()
+
+
+def fetch_note_detail_from_html(
+    note_id: str,
+    *,
+    xsec_token: str,
+    xsec_source: str = "pc_feed",
+    cookies_file: str | None = None,
+    international: bool = True,
+) -> dict:
+    """Load note detail by parsing explore page HTML (works when feed API returns -100)."""
+    if not xsec_token:
+        raise RedNoteAPIError(
+            "Token video RedNote tidak ada. Scan ulang profil agar xsec_token tersimpan di URL video."
+        )
+
+    sources = []
+    for candidate in (xsec_source, "pc_feed", "pc_user"):
+        if candidate and candidate not in sources:
+            sources.append(candidate)
+
+    last_error: Exception | None = None
+    for source in sources:
+        try:
+            html = _fetch_explore_html(
+                note_id,
+                xsec_token=xsec_token,
+                xsec_source=source,
+                cookies_file=cookies_file,
+                international=international,
+            )
+            note = _note_from_initial_state(_parse_initial_state(html), note_id)
+            if note and str(note.get("type") or "").lower() == "video":
+                return note
+            last_error = RedNoteAPIError("Video tidak ditemukan di halaman RedNote.")
+        except RedNoteAPIError as exc:
+            last_error = exc
+
+    if last_error:
+        raise last_error
+    raise RedNoteAPIError("Gagal mengambil detail video RedNote dari halaman.")
+
+
 def _video_url_from_note_card(note: dict) -> str:
     video = note.get("video") if isinstance(note.get("video"), dict) else {}
-    consumer = video.get("consumer") if isinstance(video.get("consumer"), dict) else {}
-    origin_key = consumer.get("origin_video_key") or consumer.get("originVideoKey")
-    if isinstance(origin_key, str) and origin_key:
-        return f"{random.choice(_VIDEO_CDNS)}/{origin_key}"
+    if not video and isinstance(note.get("media"), dict):
+        video = note
 
     media = video.get("media") if isinstance(video.get("media"), dict) else {}
     stream = media.get("stream") if isinstance(media.get("stream"), dict) else {}
@@ -371,10 +497,21 @@ def _video_url_from_note_card(note: dict) -> str:
         if not isinstance(variants, list):
             continue
         for item in variants:
-            if isinstance(item, dict):
-                master = item.get("master_url") or item.get("masterUrl")
-                if isinstance(master, str) and master.startswith("http"):
-                    return master
+            if not isinstance(item, dict):
+                continue
+            master = item.get("master_url") or item.get("masterUrl")
+            if isinstance(master, str) and master.startswith("http"):
+                return master
+            backups = item.get("backupUrls") or item.get("backup_urls") or []
+            if isinstance(backups, list):
+                for backup in backups:
+                    if isinstance(backup, str) and backup.startswith("http"):
+                        return backup
+
+    consumer = video.get("consumer") if isinstance(video.get("consumer"), dict) else {}
+    origin_key = consumer.get("origin_video_key") or consumer.get("originVideoKey")
+    if isinstance(origin_key, str) and origin_key:
+        return f"{random.choice(_VIDEO_CDNS)}/{origin_key}"
     return ""
 
 
@@ -429,36 +566,18 @@ def fetch_note_detail(
     note_id: str,
     *,
     xsec_token: str,
-    xsec_source: str = "pc_user",
+    xsec_source: str = "pc_feed",
     cookies_file: str | None = None,
     international: bool = True,
     user_id: str = "",
 ) -> dict:
-    cookies = _ensure_cookie_dict(cookies_dict_from_file(cookies_file))
-    bundle = _api_bundle(international=international)
-    referer = build_note_url(note_id, xsec_token=xsec_token, xsec_source=xsec_source, international=international)
-    payload = {
-        "source_note_id": note_id,
-        "image_formats": ["jpg", "webp", "avif"],
-        "extra": {"need_body_topic": 1},
-        "xsec_source": xsec_source,
-        "xsec_token": xsec_token,
-    }
-    data = _signed_post(
-        NOTE_FEED_URI,
-        payload,
-        cookies=cookies,
-        bundle=bundle,
-        user_id=user_id,
-        referer=referer,
+    return fetch_note_detail_from_html(
+        note_id,
+        xsec_token=xsec_token,
+        xsec_source=xsec_source,
+        cookies_file=cookies_file,
+        international=international,
     )
-    payload_data = _ensure_success(data, action="ambil detail video")
-    items = payload_data.get("items") or []
-    if items and isinstance(items[0], dict):
-        card = items[0].get("note_card") or items[0].get("noteCard")
-        if isinstance(card, dict):
-            return card
-    raise ValueError("RedNote tidak mengembalikan detail video — coba scan ulang profil.")
 
 
 def resolve_rednote_download_url(
@@ -478,13 +597,12 @@ def resolve_rednote_download_url(
             "Token video RedNote tidak ada. Scan ulang profil agar xsec_token tersimpan di URL video."
         )
 
-    note = fetch_note_detail(
+    note = fetch_note_detail_from_html(
         nid,
         xsec_token=xsec_token,
         xsec_source=xsec_source,
         cookies_file=cookies_file,
         international=international,
-        user_id=user_id,
     )
     url = _video_url_from_note_card(note)
     if url:
@@ -507,8 +625,9 @@ def resolve_rednote_download_url(
             if fmt.get("vcodec") and fmt.get("vcodec") != "none" and fmt.get("url"):
                 return fmt["url"]
 
-    raise ValueError(
-        "Gagal mengambil URL video RedNote. Upload cookies rednote.com / xiaohongshu.com atau scan ulang profil."
+    raise RedNoteAPIError(
+        "Gagal mengambil URL video RedNote. Pastikan cookies masih aktif (hijau di menu Cookies) "
+        "dan scan ulang profil jika video lama tidak bisa di-download."
     )
 
 
@@ -524,7 +643,12 @@ def note_item_to_video_info(item: dict, *, international: bool = True) -> Option
         return None
 
     xsec_token = str(item.get("xsec_token") or item.get("xsecToken") or "")
-    url = build_note_url(note_id, xsec_token=xsec_token, international=international)
+    url = build_note_url(
+        note_id,
+        xsec_token=xsec_token,
+        xsec_source="pc_feed",
+        international=international,
+    )
     interact = item.get("interact_info") if isinstance(item.get("interact_info"), dict) else {}
     if not interact and isinstance(item.get("interactInfo"), dict):
         interact = item["interactInfo"]
