@@ -347,6 +347,62 @@ h1, h2, h3, .page-header h2, .panel-header h3, #profile-title {
 .oauth-table .app-id { font-size: 11px; color: var(--text-muted); }
 .oauth-table-hint { margin-top: 12px; }
 
+.monitoring-hub-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.monitoring-hub-tab {
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.monitoring-hub-tab:hover {
+  color: var(--text);
+}
+
+.monitoring-hub-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.monitoring-section.hidden {
+  display: none !important;
+}
+
+.oauth-summary-card .osc-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.volume-bar {
+  height: 8px;
+  min-width: 120px;
+  background: var(--bg-elevated);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.volume-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  border-radius: 999px;
+  min-width: 2px;
+}
+
 .monitoring-tabs {
   display: flex;
   flex-wrap: wrap;

@@ -42,6 +42,20 @@ function initTheme() {
 
 initTheme();
 
+function fmtBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (!value) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let idx = 0;
+  while (size >= 1024 && idx < units.length - 1) {
+    size /= 1024;
+    idx += 1;
+  }
+  const digits = idx >= 2 ? 2 : 0;
+  return `${size.toFixed(digits)} ${units[idx]}`;
+}
+
 function fmtNum(n) {
   if (n == null) return '-';
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
@@ -827,6 +841,19 @@ let oauthMonitoringTimer = null;
 let aiMonitoringTimer = null;
 let socialMonitoringTimer = null;
 let monitoringPlatform = 'overview';
+let monitoringSection = 'oauth';
+
+const MONITORING_SECTION_LABELS = {
+  oauth: 'OAuth & Akun',
+  volume: 'Volume Penyimpanan',
+  ai: 'AI Configuration',
+};
+
+const MONITORING_SECTION_HINTS = {
+  oauth: 'Pantau koneksi akun sosial per platform — terpisah dari Multiupload Platform.',
+  volume: 'Total GB video tersimpan di server dan profil mana yang paling banyak memakan storage.',
+  ai: 'Kelola API key OpenAI & Gemini. System auto-rotate ke backup saat quota/token habis.',
+};
 
 const MONITORING_PLATFORM_LABELS = {
   overview: 'Overview',
@@ -838,14 +865,27 @@ const MONITORING_PLATFORM_LABELS = {
   twitter: 'X / Twitter',
 };
 
+function setMonitoringSection(section) {
+  monitoringSection = section || 'oauth';
+  $$('.monitoring-hub-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.monitoringSection === monitoringSection);
+  });
+  $$('.monitoring-section').forEach((el) => {
+    const id = el.id?.replace('monitoring-section-', '');
+    el.classList.toggle('hidden', id !== monitoringSection);
+  });
+  const title = $('#monitoring-page-title');
+  const desc = $('#monitoring-page-desc');
+  if (title) title.textContent = MONITORING_SECTION_LABELS[monitoringSection] || 'Monitoring';
+  if (desc) desc.textContent = MONITORING_SECTION_HINTS[monitoringSection] || MONITORING_SECTION_HINTS.oauth;
+}
+
 function setMonitoringPlatform(platform) {
   monitoringPlatform = platform || 'overview';
-  $$('.monitoring-tab').forEach((tab) => {
+  $$('#monitoring-platform-tabs .monitoring-tab').forEach((tab) => {
     tab.classList.toggle('active', tab.dataset.monitoringPlatform === monitoringPlatform);
   });
-  $$('.nav-item[data-monitoring-platform]').forEach((el) => {
-    el.classList.toggle('active', el.dataset.view === 'monitoring' && el.dataset.monitoringPlatform === monitoringPlatform);
-  });
+  if (monitoringSection !== 'oauth') return;
   const title = $('#monitoring-page-title');
   const desc = $('#monitoring-page-desc');
   const tableTitle = $('#monitoring-table-title');
@@ -1090,6 +1130,92 @@ async function renderMonitoringConnectPanel(platform) {
   });
 }
 
+function renderVolumeSummaryCards(data) {
+  const el = $('#volume-summary-cards');
+  if (!el) return;
+  const orphanBytes = Math.max(0, (data.disk_bytes || 0) - (data.total_bytes || 0));
+  el.innerHTML = `
+    <div class="oauth-summary-card ok">
+      <div class="osc-label">Total Tersimpan</div>
+      <div class="osc-value">${data.total_gb ?? 0} GB</div>
+      <div class="osc-sub">${fmtBytes(data.total_bytes)} · ${data.total_files || 0} file</div>
+    </div>
+    <div class="oauth-summary-card">
+      <div class="osc-label">Folder User</div>
+      <div class="osc-value">${data.disk_gb ?? 0} GB</div>
+      <div class="osc-sub">${fmtBytes(data.disk_bytes)} di storage</div>
+    </div>
+    <div class="oauth-summary-card">
+      <div class="osc-label">Profil Aktif</div>
+      <div class="osc-value">${data.profiles_with_storage || 0}</div>
+      <div class="osc-sub">dari ${data.profile_count || 0} profil tersimpan</div>
+    </div>
+    <div class="oauth-summary-card ${orphanBytes ? 'warn' : ''}">
+      <div class="osc-label">Legacy / Orphan</div>
+      <div class="osc-value">${data.legacy_gb ?? 0} GB</div>
+      <div class="osc-sub">${orphanBytes ? fmtBytes(orphanBytes) + ' di luar index DB' : 'Tidak ada file yatim'}</div>
+    </div>`;
+}
+
+function renderVolumeProfilesTable(profiles) {
+  const tbody = $('#volume-profiles-table');
+  const countEl = $('#volume-profiles-count');
+  if (!tbody) return;
+  const rows = (profiles || []).filter((p) => p.bytes > 0);
+  if (countEl) countEl.textContent = `${rows.length} profil`;
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="modal-desc">Belum ada video tersimpan di server. Download ke server dari Dashboard Profil untuk mulai mengisi storage.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((p) => `
+    <tr>
+      <td>
+        <div class="mon-name">@${p.username}</div>
+        <a href="${p.url}" target="_blank" rel="noopener" class="mon-handle">Buka profil</a>
+      </td>
+      <td><span class="platform-pill">${p.platform}</span></td>
+      <td>${fmtNum(p.downloaded_count)} <span class="mon-handle">/ ${fmtNum(p.video_count)}</span></td>
+      <td><strong>${p.gb} GB</strong><div class="mon-handle">${fmtBytes(p.bytes)}</div></td>
+      <td>${p.pct}%</td>
+      <td><div class="volume-bar" title="${p.pct}%"><span style="width:${Math.max(p.pct, 2)}%"></span></div></td>
+    </tr>`).join('');
+}
+
+async function loadMonitoringVolumePage() {
+  try {
+    const data = await api('/monitoring/volume');
+    renderVolumeSummaryCards(data);
+    renderVolumeProfilesTable(data.profiles || []);
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function loadMonitoringAiPage() {
+  try {
+    const overview = await api('/settings/ai/monitoring');
+    renderAiSummaryCards(overview);
+    renderAiProvidersTable(overview.providers || []);
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function loadMonitoringHub(section = monitoringSection, platform = monitoringPlatform) {
+  setMonitoringSection(section);
+  if (section === 'oauth') {
+    await loadMonitoringPage(platform);
+    return;
+  }
+  if (section === 'volume') {
+    await loadMonitoringVolumePage();
+    return;
+  }
+  if (section === 'ai') {
+    await loadMonitoringAiPage();
+  }
+}
+
 async function loadMonitoringPage(platform = monitoringPlatform) {
   setMonitoringPlatform(platform);
   await renderMonitoringConnectPanel(platform);
@@ -1126,6 +1252,22 @@ async function refreshMonitoringPage() {
   }
 }
 
+async function refreshMonitoringHub() {
+  if (monitoringSection === 'oauth') {
+    await refreshMonitoringPage();
+    return;
+  }
+  if (monitoringSection === 'volume') {
+    await loadMonitoringVolumePage();
+    showToast('Volume penyimpanan diperbarui');
+    return;
+  }
+  if (monitoringSection === 'ai') {
+    await loadMonitoringAiPage();
+    showToast('AI monitoring diperbarui');
+  }
+}
+
 function switchView(view, opts = {}) {
   const views = {
     profiles: '#view-profiles',
@@ -1142,19 +1284,13 @@ function switchView(view, opts = {}) {
     if (el) el.classList.toggle('hidden', view !== key);
   });
   $$('.nav-item[data-view]').forEach((el) => {
-    if (el.dataset.view === 'monitoring') {
-      el.classList.toggle('active', view === 'monitoring' && el.dataset.monitoringPlatform === monitoringPlatform);
-    } else {
-      el.classList.toggle('active', el.dataset.view === view);
-    }
+    el.classList.toggle('active', el.dataset.view === view);
   });
   document.querySelector('.main')?.scrollTo(0, 0);
   if (['youtube', 'facebook', 'threads', 'oauth-monitoring'].includes(view)) {
     $('#nav-multiupload-toggle')?.closest('.nav-group')?.classList.add('open');
   }
-  if (view === 'monitoring') {
-    $('#nav-monitoring-toggle')?.closest('.nav-group')?.classList.add('open');
-  }
+
   if (oauthMonitoringTimer) {
     clearInterval(oauthMonitoringTimer);
     oauthMonitoringTimer = null;
@@ -1170,18 +1306,20 @@ function switchView(view, opts = {}) {
   if (view === 'youtube') loadYouTubePage();
   if (view === 'facebook') loadFacebookPage();
   if (view === 'threads') loadThreadsPage();
-  if (view === 'settings') {
-    loadSettingsPage();
-    aiMonitoringTimer = setInterval(loadSettingsPage, 30000);
-  }
+  if (view === 'settings') loadSettingsPage();
   if (view === 'oauth-monitoring') {
     loadOAuthMonitoringPage();
     oauthMonitoringTimer = setInterval(loadOAuthMonitoringPage, 30000);
   }
   if (view === 'monitoring') {
+    const section = opts.monitoringSection || monitoringSection || 'oauth';
     const platform = opts.monitoringPlatform || monitoringPlatform || 'overview';
-    loadMonitoringPage(platform);
-    socialMonitoringTimer = setInterval(() => loadMonitoringPage(monitoringPlatform), 60000);
+    loadMonitoringHub(section, platform);
+    if (section === 'oauth') {
+      socialMonitoringTimer = setInterval(() => loadMonitoringPage(monitoringPlatform), 60000);
+    } else if (section === 'ai') {
+      aiMonitoringTimer = setInterval(loadMonitoringAiPage, 30000);
+    }
   }
 }
 
@@ -1193,11 +1331,6 @@ function initSidebarNavigation() {
     const btn = e.target.closest('.nav-item[data-view]');
     if (!btn || btn.disabled || btn.classList.contains('nav-soon')) return;
     e.preventDefault();
-    const platform = btn.dataset.monitoringPlatform;
-    if (btn.dataset.view === 'monitoring' && platform) {
-      switchView('monitoring', { monitoringPlatform: platform });
-      return;
-    }
     switchView(btn.dataset.view);
   });
 }
@@ -1209,23 +1342,29 @@ $('#link-oauth-monitoring')?.addEventListener('click', (e) => {
 });
 $('#link-settings-ai')?.addEventListener('click', (e) => {
   e.preventDefault();
-  switchView('settings');
+  switchView('monitoring', { monitoringSection: 'ai' });
 });
 $('#link-settings-threads')?.addEventListener('click', (e) => {
   e.preventDefault();
-  switchView('settings');
+  switchView('monitoring', { monitoringSection: 'ai' });
+});
+$('#link-settings-to-monitoring-ai')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  switchView('monitoring', { monitoringSection: 'ai' });
 });
 $('#nav-multiupload-toggle').onclick = () => {
   $('#nav-multiupload-toggle').closest('.nav-group').classList.toggle('open');
 };
-$('#nav-monitoring-toggle')?.addEventListener('click', () => {
-  $('#nav-monitoring-toggle').closest('.nav-group').classList.toggle('open');
+$('#btn-monitoring-refresh')?.addEventListener('click', () => refreshMonitoringHub());
+$('#monitoring-hub-tabs')?.addEventListener('click', (e) => {
+  const tab = e.target.closest('.monitoring-hub-tab[data-monitoring-section]');
+  if (!tab) return;
+  switchView('monitoring', { monitoringSection: tab.dataset.monitoringSection });
 });
-$('#btn-monitoring-refresh')?.addEventListener('click', () => refreshMonitoringPage());
-$('#monitoring-tabs')?.addEventListener('click', (e) => {
+$('#monitoring-platform-tabs')?.addEventListener('click', (e) => {
   const tab = e.target.closest('.monitoring-tab[data-monitoring-platform]');
   if (!tab || tab.disabled || tab.classList.contains('nav-soon')) return;
-  switchView('monitoring', { monitoringPlatform: tab.dataset.monitoringPlatform });
+  switchView('monitoring', { monitoringSection: 'oauth', monitoringPlatform: tab.dataset.monitoringPlatform });
 });
 
 function quotaBarClass(pct) {
@@ -1466,7 +1605,7 @@ function renderAiProvidersTable(providers) {
       try {
         await api(`/settings/ai/providers/${btn.dataset.resetAi}/reset-limit`, { method: 'POST' });
         showToast('AI provider limit di-reset');
-        loadSettingsPage();
+        loadMonitoringAiPage();
       } catch (e) {
         showToast(e.message, 'error');
       }
@@ -1483,7 +1622,7 @@ function renderAiProvidersTable(providers) {
           body: JSON.stringify({ is_active: !p.is_active }),
         });
         showToast(p.is_active ? 'Provider dinonaktifkan' : 'Provider diaktifkan');
-        loadSettingsPage();
+        loadMonitoringAiPage();
       } catch (e) {
         showToast(e.message, 'error');
       }
@@ -1496,7 +1635,7 @@ function renderAiProvidersTable(providers) {
       try {
         await api(`/settings/ai/providers/${p.id}`, { method: 'DELETE' });
         showToast('AI provider dihapus');
-        loadSettingsPage();
+        loadMonitoringAiPage();
       } catch (e) {
         showToast(e.message, 'error');
       }
@@ -1658,9 +1797,6 @@ async function loadAdminUsers() {
 async function loadSettingsPage() {
   try {
     await loadAdminUsers();
-    const overview = await api('/settings/ai/monitoring');
-    renderAiSummaryCards(overview);
-    renderAiProvidersTable(overview.providers || []);
   } catch (e) {
     showToast(e.message, 'error');
   }
@@ -2074,7 +2210,7 @@ $('#btn-youtube-connect').onclick = async () => {
 };
 
 $('#btn-oauth-refresh')?.addEventListener('click', () => loadOAuthMonitoringPage());
-$('#btn-ai-refresh')?.addEventListener('click', () => loadSettingsPage());
+
 
 $('#form-ai-provider')?.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -2100,7 +2236,7 @@ $('#form-ai-provider')?.addEventListener('submit', async (e) => {
     e.target.priority.value = '100';
     e.target.daily_token_limit.value = '100000';
     e.target.daily_request_limit.value = '500';
-    loadSettingsPage();
+    loadMonitoringAiPage();
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -3164,9 +3300,13 @@ $('#btn-logout').onclick = async () => {
     const ytParams = new URLSearchParams(window.location.search);
     const initView = ytParams.get('view');
     const monPlatform = ytParams.get('platform') || 'overview';
+    const monSection = ytParams.get('section') || 'oauth';
     if (['youtube', 'facebook', 'threads', 'oauth-monitoring', 'settings', 'monitoring'].includes(initView)) {
-      if (initView === 'monitoring') switchView('monitoring', { monitoringPlatform: monPlatform });
-      else switchView(initView);
+      if (initView === 'monitoring') {
+        switchView('monitoring', { monitoringSection: monSection, monitoringPlatform: monPlatform });
+      } else {
+        switchView(initView);
+      }
     }
 
     const monitoringOAuth = initView === 'monitoring';

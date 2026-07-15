@@ -32,6 +32,7 @@ from ...monitoring.metrics import refresh_account_metrics
 from ...monitoring.oauth import create_oauth_state, pop_oauth_state_meta
 from ...monitoring.scan import scan_username_metrics
 from ...monitoring.social import MONITORED_PLATFORMS, monitoring_overview, platform_metrics
+from ...monitoring.volume import storage_volume_overview
 from ...monitoring.twitter_client import (
     TwitterAPIError,
     build_auth_url as twitter_build_auth_url,
@@ -59,7 +60,7 @@ from ...youtube.client import (
 )
 from ...youtube.quota import get_oauth_app, is_app_available, pick_available_app, record_grant
 from ..auth_deps import get_current_user_id
-from ..deps import COOKIES_DIR, DB_PATH, get_session
+from ..deps import COOKIES_DIR, DB_PATH, DOWNLOAD_DIR, get_session
 
 router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
@@ -98,6 +99,14 @@ def _redirect_base(request: Request, env_key: str, path: str) -> str:
 def _monitoring_redirect(view_platform: str, **params: str) -> str:
     q = urllib.parse.urlencode({"view": "monitoring", "platform": view_platform, **params})
     return f"/index.html?{q}"
+
+
+@router.get("/volume")
+def api_storage_volume(
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    return storage_volume_overview(session, user_id, DOWNLOAD_DIR)
 
 
 @router.get("/overview")

@@ -67,42 +67,10 @@
             </button>
           </div>
         </div>
-        <div class="nav-group open">
-          <button class="nav-group-title" id="nav-monitoring-toggle" type="button">
-            <span>Social Monitoring</span>
-            <span class="nav-chevron">▾</span>
-          </button>
-          <div class="nav-submenu" id="nav-monitoring-menu">
-            <button type="button" class="nav-item" id="nav-monitoring-overview" data-view="monitoring" data-monitoring-platform="overview">
-              <span class="nav-icon"><i data-lucide="layout-grid"></i></span>
-              <span>Overview</span>
-            </button>
-            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="youtube">
-              <span class="nav-icon"><i data-lucide="youtube"></i></span>
-              <span>YouTube</span>
-            </button>
-            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="instagram">
-              <span class="nav-icon"><i data-lucide="instagram"></i></span>
-              <span>Instagram</span>
-            </button>
-            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="threads">
-              <span class="nav-icon"><i data-lucide="at-sign"></i></span>
-              <span>Threads</span>
-            </button>
-            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="facebook">
-              <span class="nav-icon"><i data-lucide="facebook"></i></span>
-              <span>Facebook</span>
-            </button>
-            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="tiktok">
-              <span class="nav-icon"><i data-lucide="music-2"></i></span>
-              <span>TikTok</span>
-            </button>
-            <button type="button" class="nav-item" data-view="monitoring" data-monitoring-platform="twitter">
-              <span class="nav-icon"><i data-lucide="twitter"></i></span>
-              <span>X / Twitter</span>
-            </button>
-          </div>
-        </div>
+        <button type="button" class="nav-item" id="nav-monitoring" data-view="monitoring">
+          <span class="nav-icon"><i data-lucide="activity"></i></span>
+          <span>Monitoring</span>
+        </button>
         <button type="button" class="nav-item" id="nav-settings" data-view="settings">
           <span class="nav-icon"><i data-lucide="settings"></i></span>
           <span>Settings</span>
@@ -849,9 +817,6 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
             <h2>Settings</h2>
             <p class="page-desc" id="settings-user-line">Kelola akun, AI provider, dan integrasi.</p>
           </div>
-          <div class="page-header-actions">
-            <button class="btn btn-secondary" id="btn-ai-refresh" type="button">↻ Refresh</button>
-          </div>
         </header>
 
         <section id="admin-users-section" class="panel panel-wide hidden">
@@ -879,82 +844,11 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
           </div>
         </section>
 
-        <header class="page-header page-header-sub">
-          <div>
-            <h2>AI Provider</h2>
-            <p class="page-desc">Kelola API key OpenAI &amp; Gemini. System auto-rotate ke backup saat quota/token habis.</p>
-          </div>
-        </header>
-
         <div id="subscription-banner" class="subscription-banner hidden"></div>
 
-        <div id="ai-summary-cards" class="oauth-summary-grid"></div>
-
         <section class="panel panel-wide">
-          <div class="panel-header">
-            <h3>AI Providers</h3>
-            <span class="badge" id="ai-providers-count">0 providers</span>
-          </div>
           <div class="panel-body">
-            <div class="table-wrap">
-              <table class="oauth-table">
-                <thead>
-                  <tr>
-                    <th>Provider</th>
-                    <th>Status</th>
-                    <th>Token Usage</th>
-                    <th>Request Usage</th>
-                    <th>Model</th>
-                    <th>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody id="ai-providers-table"></tbody>
-              </table>
-            </div>
-            <p class="modal-desc oauth-table-hint">Priority lebih kecil = dipakai duluan. Saat limit habis atau rate limit, system otomatis pindah ke provider backup berikutnya.</p>
-          </div>
-        </section>
-
-        <section class="panel panel-wide">
-          <div class="panel-header"><h3>Tambah AI Provider</h3></div>
-          <div class="panel-body">
-            <p class="modal-desc">Tambah primary (OpenAI/Gemini) atau backup key dari akun/API berbeda untuk failover otomatis.</p>
-            <form id="form-ai-provider">
-              <div class="form-row">
-                <div>
-                  <label>Label</label>
-                  <input type="text" name="label" placeholder="Primary OpenAI" required />
-                </div>
-                <div>
-                  <label>Provider</label>
-                  <select name="provider" required>
-                    <option value="openai">OpenAI</option>
-                    <option value="gemini">Google Gemini</option>
-                  </select>
-                </div>
-                <div>
-                  <label>Priority <span class="label-hint">lebih kecil = dipakai duluan</span></label>
-                  <input type="number" name="priority" value="100" min="1" />
-                </div>
-              </div>
-              <label>API Key</label>
-              <input type="password" name="api_key" placeholder="sk-... atau AIza..." required autocomplete="new-password" />
-              <div class="form-row">
-                <div>
-                  <label>Model</label>
-                  <input type="text" name="model" placeholder="gpt-4o-mini / gemini-2.0-flash" />
-                </div>
-                <div>
-                  <label>Daily Token Limit</label>
-                  <input type="number" name="daily_token_limit" value="100000" min="1000" />
-                </div>
-                <div>
-                  <label>Daily Request Limit</label>
-                  <input type="number" name="daily_request_limit" value="500" min="1" />
-                </div>
-              </div>
-              <button type="submit" class="btn btn-primary">+ Tambah Provider</button>
-            </form>
+            <p class="modal-desc">Kelola AI provider di halaman <a href="#" id="link-settings-to-monitoring-ai">Monitoring → AI Configuration</a>.</p>
           </div>
         </section>
       </div>
@@ -962,63 +856,171 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
       <div id="view-monitoring" class="hidden">
         <header class="page-header">
           <div>
-            <p class="page-eyebrow">Social Monitoring</p>
-            <h2 id="monitoring-page-title">Overview</h2>
-            <p class="page-desc" id="monitoring-page-desc">Pantau followers, views, uploads, dan revenue per akun — data terisolasi per user.</p>
+            <p class="page-eyebrow">System Monitoring</p>
+            <h2 id="monitoring-page-title">OAuth &amp; Akun</h2>
+            <p class="page-desc" id="monitoring-page-desc">Pantau koneksi akun sosial, volume penyimpanan server, dan konfigurasi AI — dalam satu halaman.</p>
           </div>
           <div class="page-header-actions">
             <button class="btn btn-secondary" id="btn-monitoring-refresh" type="button">↻ Refresh</button>
           </div>
         </header>
 
-        <div class="monitoring-tabs" id="monitoring-tabs">
-          <button type="button" class="monitoring-tab active" data-monitoring-platform="overview">Overview</button>
-          <button type="button" class="monitoring-tab" data-monitoring-platform="youtube">YouTube</button>
-          <button type="button" class="monitoring-tab" data-monitoring-platform="instagram">Instagram</button>
-          <button type="button" class="monitoring-tab" data-monitoring-platform="threads">Threads</button>
-          <button type="button" class="monitoring-tab" data-monitoring-platform="facebook">Facebook</button>
-          <button type="button" class="monitoring-tab" data-monitoring-platform="tiktok">TikTok</button>
-          <button type="button" class="monitoring-tab" data-monitoring-platform="twitter">X</button>
+        <div class="monitoring-hub-tabs" id="monitoring-hub-tabs">
+          <button type="button" class="monitoring-hub-tab active" data-monitoring-section="oauth">OAuth &amp; Akun</button>
+          <button type="button" class="monitoring-hub-tab" data-monitoring-section="volume">Volume Penyimpanan</button>
+          <button type="button" class="monitoring-hub-tab" data-monitoring-section="ai">AI Configuration</button>
         </div>
 
-        <section class="panel panel-wide hidden" id="monitoring-connect-panel">
-          <div class="panel-header">
-            <h3 id="monitoring-connect-title">Hubungkan Akun</h3>
-            <span class="badge badge-muted">Terpisah dari Multiupload</span>
+        <div id="monitoring-section-oauth" class="monitoring-section">
+          <div class="monitoring-tabs" id="monitoring-platform-tabs">
+            <button type="button" class="monitoring-tab active" data-monitoring-platform="overview">Overview</button>
+            <button type="button" class="monitoring-tab" data-monitoring-platform="youtube">YouTube</button>
+            <button type="button" class="monitoring-tab" data-monitoring-platform="instagram">Instagram</button>
+            <button type="button" class="monitoring-tab" data-monitoring-platform="threads">Threads</button>
+            <button type="button" class="monitoring-tab" data-monitoring-platform="facebook">Facebook</button>
+            <button type="button" class="monitoring-tab" data-monitoring-platform="tiktok">TikTok</button>
+            <button type="button" class="monitoring-tab" data-monitoring-platform="twitter">X</button>
           </div>
-          <div class="panel-body" id="monitoring-connect-body"></div>
-        </section>
 
-        <div id="monitoring-summary-cards" class="oauth-summary-grid"></div>
-
-        <section class="panel panel-wide">
-          <div class="panel-header">
-            <h3 id="monitoring-table-title">Semua Akun</h3>
-            <span class="badge" id="monitoring-accounts-count">0 akun</span>
-          </div>
-          <div class="panel-body">
-            <div class="table-wrap">
-              <table class="monitoring-table">
-                <thead>
-                  <tr>
-                    <th>Akun</th>
-                    <th>Platform</th>
-                    <th>Followers</th>
-                    <th>Views</th>
-                    <th>Uploads</th>
-                    <th>Revenue</th>
-                    <th>Status</th>
-                    <th>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody id="monitoring-accounts-table"></tbody>
-              </table>
+          <section class="panel panel-wide hidden" id="monitoring-connect-panel">
+            <div class="panel-header">
+              <h3 id="monitoring-connect-title">Hubungkan Akun</h3>
+              <span class="badge badge-muted">Terpisah dari Multiupload</span>
             </div>
-            <p class="modal-desc oauth-table-hint" id="monitoring-table-hint">
-              Koneksi akun dilakukan di sini — tidak pakai akun Multiupload. Data terisolasi per user login. Klik Refresh untuk tarik stats terbaru.
-            </p>
-          </div>
-        </section>
+            <div class="panel-body" id="monitoring-connect-body"></div>
+          </section>
+
+          <div id="monitoring-summary-cards" class="oauth-summary-grid"></div>
+
+          <section class="panel panel-wide">
+            <div class="panel-header">
+              <h3 id="monitoring-table-title">Semua Akun</h3>
+              <span class="badge" id="monitoring-accounts-count">0 akun</span>
+            </div>
+            <div class="panel-body">
+              <div class="table-wrap">
+                <table class="monitoring-table">
+                  <thead>
+                    <tr>
+                      <th>Akun</th>
+                      <th>Platform</th>
+                      <th>Followers</th>
+                      <th>Views</th>
+                      <th>Uploads</th>
+                      <th>Revenue</th>
+                      <th>Status</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="monitoring-accounts-table"></tbody>
+                </table>
+              </div>
+              <p class="modal-desc oauth-table-hint" id="monitoring-table-hint">
+                Koneksi akun dilakukan di sini — tidak pakai akun Multiupload. Data terisolasi per user login. Klik Refresh untuk tarik stats terbaru.
+              </p>
+            </div>
+          </section>
+        </div>
+
+        <div id="monitoring-section-volume" class="monitoring-section hidden">
+          <div id="volume-summary-cards" class="oauth-summary-grid"></div>
+          <section class="panel panel-wide">
+            <div class="panel-header">
+              <h3>Profil Terbesar di Storage</h3>
+              <span class="badge" id="volume-profiles-count">0 profil</span>
+            </div>
+            <div class="panel-body">
+              <div class="table-wrap">
+                <table class="monitoring-table">
+                  <thead>
+                    <tr>
+                      <th>Profil</th>
+                      <th>Platform</th>
+                      <th>Video Tersimpan</th>
+                      <th>Ukuran</th>
+                      <th>% Total</th>
+                      <th>Distribusi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="volume-profiles-table"></tbody>
+                </table>
+              </div>
+              <p class="modal-desc oauth-table-hint" id="volume-table-hint">
+                Volume dihitung dari file video yang tersimpan di server (bukan download langsung ke PC). Profil dengan file terbanyak biasanya paling banyak memakan storage.
+              </p>
+            </div>
+          </section>
+        </div>
+
+        <div id="monitoring-section-ai" class="monitoring-section hidden">
+          <div id="ai-summary-cards" class="oauth-summary-grid"></div>
+          <section class="panel panel-wide">
+            <div class="panel-header">
+              <h3>AI Providers</h3>
+              <span class="badge" id="ai-providers-count">0 providers</span>
+            </div>
+            <div class="panel-body">
+              <div class="table-wrap">
+                <table class="oauth-table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Status</th>
+                      <th>Token Usage</th>
+                      <th>Request Usage</th>
+                      <th>Model</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ai-providers-table"></tbody>
+                </table>
+              </div>
+              <p class="modal-desc oauth-table-hint">Priority lebih kecil = dipakai duluan. Saat limit habis atau rate limit, system otomatis pindah ke provider backup berikutnya.</p>
+            </div>
+          </section>
+          <section class="panel panel-wide">
+            <div class="panel-header"><h3>Tambah AI Provider</h3></div>
+            <div class="panel-body">
+              <p class="modal-desc">Tambah primary (OpenAI/Gemini) atau backup key dari akun/API berbeda untuk failover otomatis.</p>
+              <form id="form-ai-provider">
+                <div class="form-row">
+                  <div>
+                    <label>Label</label>
+                    <input type="text" name="label" placeholder="Primary OpenAI" required />
+                  </div>
+                  <div>
+                    <label>Provider</label>
+                    <select name="provider" required>
+                      <option value="openai">OpenAI</option>
+                      <option value="gemini">Google Gemini</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Priority <span class="label-hint">lebih kecil = dipakai duluan</span></label>
+                    <input type="number" name="priority" value="100" min="1" />
+                  </div>
+                </div>
+                <label>API Key</label>
+                <input type="password" name="api_key" placeholder="sk-... atau AIza..." required autocomplete="new-password" />
+                <div class="form-row">
+                  <div>
+                    <label>Model</label>
+                    <input type="text" name="model" placeholder="gpt-4o-mini / gemini-2.0-flash" />
+                  </div>
+                  <div>
+                    <label>Daily Token Limit</label>
+                    <input type="number" name="daily_token_limit" value="100000" min="1000" />
+                  </div>
+                  <div>
+                    <label>Daily Request Limit</label>
+                    <input type="number" name="daily_request_limit" value="500" min="1" />
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary">+ Tambah Provider</button>
+              </form>
+            </div>
+          </section>
+        </div>
       </div>
 
       <div id="view-oauth-monitoring" class="hidden">
