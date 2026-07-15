@@ -43,6 +43,7 @@ from ..gmv.tiktok_shop import (
     save_shop_config,
     sync_gmv_from_api,
 )
+from ..scrapers.rednote_api import rednote_cdn_referer
 from ..direct_download import (
     content_disposition_attachment,
     direct_download_filename,
@@ -1655,9 +1656,11 @@ def api_direct_download_video(
         "tiktok": "https://www.tiktok.com/",
         "instagram": "https://www.instagram.com/",
         "kuaishou": "https://www.kuaishou.com/",
-        "rednote": "https://www.rednote.com/",
     }
-    referer = referers.get(profile.platform, "https://www.tiktok.com/")
+    if profile.platform == "rednote":
+        referer = rednote_cdn_referer(source_url)
+    else:
+        referer = referers.get(profile.platform, "https://www.tiktok.com/")
     headers = {
         "Content-Disposition": content_disposition_attachment(filename),
         "Cache-Control": "no-store",

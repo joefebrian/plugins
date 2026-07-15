@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from .db.models import Video
 from .scrapers.kuaishou_api import resolve_kuaishou_download_url
-from .scrapers.rednote_api import resolve_rednote_download_url
+from .scrapers.rednote_api import rednote_cdn_referer, resolve_rednote_download_url
 from .scrapers.tikwm import download_file, get_tiktok_video_url
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -134,7 +134,7 @@ class VideoDownloader:
             cookies_file=self.cookies_file,
             user_id=username,
         )
-        download_file(source_url, str(file_path))
+        download_file(source_url, str(file_path), referer=rednote_cdn_referer(source_url))
         if not self._is_video_file(file_path):
             file_path.unlink(missing_ok=True)
             raise ValueError("Download RedNote gagal — file bukan video valid")

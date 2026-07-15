@@ -25,6 +25,11 @@ _VIDEO_CDNS = (
     "https://sns-video-bd.xhscdn.com",
     "https://sns-video-qn.xhscdn.com",
 )
+# Origin uploads (no watermark) are reliably served from bd/qn only.
+_ORIGIN_VIDEO_CDNS = (
+    "https://sns-video-bd.xhscdn.com",
+    "https://sns-video-qn.xhscdn.com",
+)
 
 _SIGNER: Any = None
 _SESSION: Any = None
@@ -485,30 +490,116 @@ def fetch_note_detail_from_html(
     raise RedNoteAPIError("Gagal mengambil detail video RedNote dari halaman.")
 
 
-def _video_url_from_note_card(note: dict) -> str:
+def rednote_cdn_referer(url: str) -> str:
+    """xhscdn origin files reject rednote.com Referer; use xiaohongshu.com instead."""
+    host = urlparse(url or "").netloc.lower()
+    if "xhscdn.com" in host:
+        return "https://www.xiaohongshu.com/"
+    return "https://www.rednote.com/"
+
+
+def _is_watermarked_stream(item: dict) -> bool:
+    desc = str(item.get("stream_desc") or item.get("streamDesc") or "").upper()
+    return desc.startswith("WM_")
+
+
+def _probe_origin_video_url(url: str) -> bool:
+    headers = {
+        "Referer": rednote_cdn_referer(url),
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        ),
+    }
+    try:
+        from curl_cffi import requests as curl_requests
+
+        resp = curl_requests.head(
+            url,
+            headers=headers,
+            impersonate="chrome131",
+            timeout=15,
+            allow_redirects=True,
+        )
+        if resp.status_code != 200:
+            return False
+        size = int(resp.headers.get("content-length") or 0)
+        return size == 0 or size > 100_000
+    except Exception:
+        try:
+            import urllib.request
+
+            req = urllib.request.Request(url, headers=headers, method="HEAD")
+            with urllib.request.urlopen(req, timeout=15) as raw:
+                if raw.status != 200:
+                    return False
+                size = int(raw.headers.get("Content-Length") or 0)
+                return size == 0 or size > 100_000
+        except Exception:
+            return False
+
+
+def _origin_video_url_from_consumer(consumer: dict) -> str:
+    origin_key = consumer.get("origin_video_key") or consumer.get("originVideoKey")
+    if not isinstance(origin_key, str) or not origin_key:
+        return ""
+    for cdn in _ORIGIN_VIDEO_CDNS:
+        url = f"{cdn}/{origin_key}"
+        if _probe_origin_video_url(url):
+            return url
+    return ""
+
+
+def _stream_urls_from_item(item: dict) -> list[str]:
+    urls: list[str] = []
+    master = item.get("master_url") or item.get("masterUrl")
+    if isinstance(master, str) and master.startswith("http"):
+        urls.append(master)
+    backups = item.get("backupUrls") or item.get("backup_urls") or []
+    if isinstance(backups, list):
+        for backup in backups:
+            if isinstance(backup, str) and backup.startswith("http"):
+                urls.append(backup)
+    return urls
+
+
+def _video_url_from_note_card(note: dict, *, prefer_no_watermark: bool = True) -> str:
     video = note.get("video") if isinstance(note.get("video"), dict) else {}
     if not video and isinstance(note.get("media"), dict):
         video = note
 
+    consumer = video.get("consumer") if isinstance(video.get("consumer"), dict) else {}
+    if prefer_no_watermark:
+        origin_url = _origin_video_url_from_consumer(consumer)
+        if origin_url:
+            return origin_url
+
     media = video.get("media") if isinstance(video.get("media"), dict) else {}
     stream = media.get("stream") if isinstance(media.get("stream"), dict) else {}
-    for key in ("h264", "h265", "av1"):
-        variants = stream.get(key)
+
+    clean_urls: list[str] = []
+    watermarked_urls: list[str] = []
+    for codec in ("h264", "h265", "av1"):
+        variants = stream.get(codec)
         if not isinstance(variants, list):
             continue
         for item in variants:
             if not isinstance(item, dict):
                 continue
-            master = item.get("master_url") or item.get("masterUrl")
-            if isinstance(master, str) and master.startswith("http"):
-                return master
-            backups = item.get("backupUrls") or item.get("backup_urls") or []
-            if isinstance(backups, list):
-                for backup in backups:
-                    if isinstance(backup, str) and backup.startswith("http"):
-                        return backup
+            bucket = watermarked_urls if _is_watermarked_stream(item) else clean_urls
+            bucket.extend(_stream_urls_from_item(item))
 
-    consumer = video.get("consumer") if isinstance(video.get("consumer"), dict) else {}
+    if prefer_no_watermark:
+        if clean_urls:
+            return clean_urls[0]
+        if watermarked_urls:
+            return watermarked_urls[0]
+    else:
+        if watermarked_urls:
+            return watermarked_urls[0]
+        if clean_urls:
+            return clean_urls[0]
+
     origin_key = consumer.get("origin_video_key") or consumer.get("originVideoKey")
     if isinstance(origin_key, str) and origin_key:
         return f"{random.choice(_VIDEO_CDNS)}/{origin_key}"
