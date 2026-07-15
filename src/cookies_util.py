@@ -181,13 +181,26 @@ def validate_platform_cookies(cookies_dir: Path, platform: str) -> dict:
             "updated_at": None,
         }
 
-    if meta.session_cookie_names:
+    guest: bool | None = None
+    if meta.id == "rednote":
+        try:
+            from .scrapers.rednote_api import check_rednote_login
+
+            session = check_rednote_login(path_str)
+            ok = bool(session.get("ok"))
+            message = session.get("message") or f"Cookies {meta.label}"
+            guest = bool(session.get("guest"))
+        except Exception as exc:
+            ok = has_session
+            message = (
+                f"Cookies {meta.label} ada tapi verifikasi sesi gagal: {exc}"
+                if has_session
+                else f"Cookies {meta.label} belum valid"
+            )
+    elif meta.session_cookie_names:
         ok = has_session
         if ok:
             message = f"Cookies {meta.label} OK"
-        elif meta.id == "rednote":
-            message = "Cookies ada — disarankan login ulang jika scan gagal (butuh a1 + web_session)"
-            ok = True
         else:
             message = f"Cookies {meta.label} ada tapi sesi login belum terdeteksi"
     else:
@@ -200,7 +213,7 @@ def validate_platform_cookies(cookies_dir: Path, platform: str) -> dict:
     except OSError:
         pass
 
-    return {
+    result = {
         "platform": meta.id,
         "label": meta.label,
         "ok": ok,
@@ -212,6 +225,9 @@ def validate_platform_cookies(cookies_dir: Path, platform: str) -> dict:
         "updated_at": updated_at,
         "path": str(path),
     }
+    if guest is not None:
+        result["guest"] = guest
+    return result
 
 
 def all_platforms_status(cookies_dir: Path) -> list[dict]:

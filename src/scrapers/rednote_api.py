@@ -27,6 +27,11 @@ _VIDEO_CDNS = (
 )
 
 _SIGNER: Any = None
+_SESSION: Any = None
+
+# edith works with RedNote export cookies; webapi often returns "login expired".
+_PRIMARY_HOST = "https://edith.xiaohongshu.com"
+_FALLBACK_HOST = "https://webapi.rednote.com"
 
 
 def _get_signer():
@@ -38,20 +43,28 @@ def _get_signer():
     return _SIGNER
 
 
+def _get_session():
+    global _SESSION
+    if _SESSION is None:
+        from xhshow import SessionManager
+
+        _SESSION = SessionManager()
+    return _SESSION
+
+
 def _api_bundle(*, international: bool) -> dict[str, str]:
-    if international:
-        return {
-            "host": "https://webapi.rednote.com",
-            "domain": "https://www.rednote.com",
-            "origin": "https://www.rednote.com",
-            "referer": "https://www.rednote.com/",
-        }
+    domain = "https://www.rednote.com" if international else "https://www.xiaohongshu.com"
     return {
-        "host": "https://edith.xiaohongshu.com",
-        "domain": "https://www.xiaohongshu.com",
-        "origin": "https://www.xiaohongshu.com",
-        "referer": "https://www.xiaohongshu.com/",
+        "host": _PRIMARY_HOST,
+        "fallback_host": _FALLBACK_HOST,
+        "domain": domain,
+        "origin": domain,
+        "referer": f"{domain}/",
     }
+
+
+def _stringify_params(params: dict[str, Any]) -> dict[str, str]:
+    return {key: "" if value is None else str(value) for key, value in params.items()}
 
 
 def cookies_dict_from_file(
@@ -96,18 +109,34 @@ def _ensure_cookie_dict(cookie_dict: dict[str, str]) -> dict[str, str]:
     return cookies
 
 
-def _base_headers(bundle: dict[str, str], cookie_header: str) -> dict[str, str]:
+def _base_headers(
+    bundle: dict[str, str],
+    cookie_header: str,
+    *,
+    cookies: dict[str, str] | None = None,
+    referer: str | None = None,
+    with_json_content_type: bool = False,
+) -> dict[str, str]:
     headers = {
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Content-Type": "application/json",
+        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
         "Origin": bundle["origin"],
-        "Referer": bundle["referer"],
+        "Referer": referer or bundle["referer"],
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         ),
+        "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"macOS"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "cross-site",
     }
+    if cookies and cookies.get("xsecappid"):
+        headers["xsecappid"] = cookies["xsecappid"]
+    if with_json_content_type:
+        headers["Content-Type"] = "application/json"
     if cookie_header:
         headers["Cookie"] = cookie_header
     return headers
@@ -121,53 +150,65 @@ def _build_query_string(params: dict[str, Any]) -> str:
     return "&".join(parts)
 
 
-def _http_get_json(
-    url: str,
-    *,
-    params: dict[str, Any],
-    headers: dict[str, str],
-) -> dict:
+class RedNoteAPIError(ValueError):
+    pass
+
+
+def _parse_response_json(resp) -> dict:
+    try:
+        data = resp.json()
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    snippet = (getattr(resp, "text", "") or "")[:200]
+    raise RedNoteAPIError(f"RedNote API mengembalikan respons tidak valid (HTTP {resp.status_code}): {snippet}")
+
+
+def _http_json(method: str, url: str, *, headers: dict[str, str], body: bytes | None = None) -> dict:
     try:
         from curl_cffi import requests as curl_requests
 
-        resp = curl_requests.get(
-            url,
-            params=params,
-            headers=headers,
-            impersonate="chrome131",
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except ImportError:
-        import urllib.request
-
-        full = f"{url}?{_build_query_string(params)}"
-        req = urllib.request.Request(full, headers=headers, method="GET")
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
-
-
-def _http_post_json(url: str, *, payload: dict, headers: dict[str, str]) -> dict:
-    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    try:
-        from curl_cffi import requests as curl_requests
-
-        resp = curl_requests.post(
+        resp = curl_requests.request(
+            method,
             url,
             data=body,
             headers=headers,
             impersonate="chrome131",
             timeout=30,
         )
-        resp.raise_for_status()
-        return resp.json()
     except ImportError:
         import urllib.request
 
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=30) as raw:
+            class _Resp:
+                status_code = raw.status
+                text = raw.read().decode()
+
+                def json(self_nonlocal):
+                    return json.loads(self.text)
+
+            resp = _Resp()
+
+    if resp.status_code in (461, 471):
+        verify_type = getattr(resp, "headers", {}).get("Verifytype", "")
+        raise RedNoteAPIError(
+            "RedNote meminta verifikasi captcha. Buka rednote.com di browser, buka satu profil, "
+            "selesaikan captcha jika muncul, lalu export & upload cookies lagi."
+            + (f" (Verifytype {verify_type})" if verify_type else "")
+        )
+    if resp.status_code == 406:
+        raise RedNoteAPIError(
+            "RedNote menolak request (HTTP 406). Coba upload ulang cookies dari rednote.com "
+            "setelah login, lalu scan lagi."
+        )
+
+    data = _parse_response_json(resp)
+    if resp.status_code >= 400 and not data.get("success"):
+        msg = data.get("msg") or data.get("message") or f"HTTP {resp.status_code}"
+        raise RedNoteAPIError(f"RedNote API error: {msg}")
+    return data
 
 
 def _signed_get(
@@ -176,13 +217,23 @@ def _signed_get(
     *,
     cookies: dict[str, str],
     bundle: dict[str, str],
+    referer: str | None = None,
+    host: str | None = None,
 ) -> dict:
     signer = _get_signer()
-    sign_headers = signer.sign_headers_get(uri=uri, cookies=cookies, params=params)
-    headers = _base_headers(bundle, "; ".join(f"{k}={v}" for k, v in cookies.items()))
+    str_params = _stringify_params(params)
+    sign_headers = signer.sign_headers_get(
+        uri=uri,
+        cookies=cookies,
+        params=str_params,
+        session=_get_session(),
+    )
+    cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
+    headers = _base_headers(bundle, cookie_header, cookies=cookies, referer=referer)
     headers.update(sign_headers)
-    full_url = f"{bundle['host']}{uri}"
-    return _http_get_json(full_url, params=params, headers=headers)
+    api_host = host or bundle["host"]
+    full_url = signer.build_url(base_url=f"{api_host}{uri}", params=str_params)
+    return _http_json("GET", full_url, headers=headers)
 
 
 def _signed_post(
@@ -192,6 +243,8 @@ def _signed_post(
     cookies: dict[str, str],
     bundle: dict[str, str],
     user_id: str = "",
+    referer: str | None = None,
+    host: str | None = None,
 ) -> dict:
     signer = _get_signer()
     sign_headers = signer.sign_headers_post(
@@ -200,10 +253,53 @@ def _signed_post(
         payload=payload,
         x_rap=True,
         user_id=user_id or None,
+        session=_get_session(),
     )
-    headers = _base_headers(bundle, "; ".join(f"{k}={v}" for k, v in cookies.items()))
+    cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
+    headers = _base_headers(
+        bundle,
+        cookie_header,
+        cookies=cookies,
+        referer=referer,
+        with_json_content_type=True,
+    )
     headers.update(sign_headers)
-    return _http_post_json(f"{bundle['host']}{uri}", payload=payload, headers=headers)
+    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    api_host = host or bundle["host"]
+    return _http_json("POST", f"{api_host}{uri}", headers=headers, body=body)
+
+
+def check_rednote_login(cookies_file: str | None) -> dict:
+    """Return login state using /v2/user/me (guest=False means logged in)."""
+    cookies = _ensure_cookie_dict(cookies_dict_from_file(cookies_file))
+    if not cookies.get("web_session") and not cookies.get("a1"):
+        return {"ok": False, "guest": True, "message": "Cookies RedNote tidak lengkap (tanpa web_session/a1)"}
+
+    bundle = _api_bundle(international=True)
+    try:
+        data = _signed_get("/api/sns/web/v2/user/me", {}, cookies=cookies, bundle=bundle)
+    except RedNoteAPIError as exc:
+        return {"ok": False, "guest": True, "message": str(exc)}
+
+    payload = data.get("data") if data.get("success") else {}
+    if not isinstance(payload, dict):
+        payload = {}
+    guest = bool(payload.get("guest"))
+    if guest:
+        return {
+            "ok": False,
+            "guest": True,
+            "message": (
+                "Cookies RedNote terdeteksi sebagai tamu (belum login). "
+                "Login di rednote.com, buka beranda/profil, lalu export cookies lagi."
+            ),
+        }
+    return {
+        "ok": True,
+        "guest": False,
+        "user_id": payload.get("user_id"),
+        "message": "Sesi RedNote aktif",
+    }
 
 
 def _ensure_success(data: dict, *, action: str) -> dict:
@@ -213,15 +309,16 @@ def _ensure_success(data: dict, *, action: str) -> dict:
     code = data.get("code")
     msg = data.get("msg") or data.get("message") or f"code={code}"
     if code in (-100, -101, 300012):
-        raise ValueError(
-            f"RedNote {action} butuh cookies login. "
-            "Export cookies dari rednote.com atau xiaohongshu.com (login dulu) lalu upload di menu Cookies."
+        raise RedNoteAPIError(
+            f"RedNote {action}: sesi login habis. "
+            "Login ulang di rednote.com, export cookies baru, upload di menu Cookies."
         )
     if code in (-104,):
-        raise ValueError(
-            f"RedNote {action} gagal: sesi habis. Login ulang di rednote.com lalu upload cookies baru."
+        raise RedNoteAPIError(
+            f"RedNote {action}: akun tidak punya akses API. "
+            "Coba login ulang di rednote.com lalu upload cookies baru."
         )
-    raise ValueError(f"RedNote {action} gagal: {msg}")
+    raise RedNoteAPIError(f"RedNote {action} gagal: {msg}")
 
 
 def extract_note_id_from_url(url: str) -> str:
@@ -288,10 +385,15 @@ def fetch_user_posted(
     cookies_file: str | None = None,
     international: bool = True,
     xsec_token: str = "",
-    xsec_source: str = "pc_feed",
+    xsec_source: str = "pc_user",
 ) -> dict:
+    login = check_rednote_login(cookies_file)
+    if not login.get("ok"):
+        raise RedNoteAPIError(login.get("message") or "Cookies RedNote belum login")
+
     cookies = _ensure_cookie_dict(cookies_dict_from_file(cookies_file))
     bundle = _api_bundle(international=international)
+    referer = f"{bundle['domain']}/user/profile/{user_id}"
     params = {
         "num": "30",
         "cursor": cursor,
@@ -300,8 +402,27 @@ def fetch_user_posted(
         "xsec_token": xsec_token,
         "xsec_source": xsec_source,
     }
-    data = _signed_get(USER_POSTED_URI, params, cookies=cookies, bundle=bundle)
-    return _ensure_success(data, action="scan profil")
+
+    last_error: Exception | None = None
+    for host in (bundle["host"], bundle.get("fallback_host")):
+        if not host:
+            continue
+        try:
+            data = _signed_get(
+                USER_POSTED_URI,
+                params,
+                cookies=cookies,
+                bundle=bundle,
+                referer=referer,
+                host=host,
+            )
+            return _ensure_success(data, action="scan profil")
+        except RedNoteAPIError as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise last_error
+    raise RedNoteAPIError("RedNote scan profil gagal")
 
 
 def fetch_note_detail(
@@ -315,6 +436,7 @@ def fetch_note_detail(
 ) -> dict:
     cookies = _ensure_cookie_dict(cookies_dict_from_file(cookies_file))
     bundle = _api_bundle(international=international)
+    referer = build_note_url(note_id, xsec_token=xsec_token, xsec_source=xsec_source, international=international)
     payload = {
         "source_note_id": note_id,
         "image_formats": ["jpg", "webp", "avif"],
@@ -328,6 +450,7 @@ def fetch_note_detail(
         cookies=cookies,
         bundle=bundle,
         user_id=user_id,
+        referer=referer,
     )
     payload_data = _ensure_success(data, action="ambil detail video")
     items = payload_data.get("items") or []
