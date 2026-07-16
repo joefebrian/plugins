@@ -11,6 +11,8 @@ _KUAISHOU_PROFILE = re.compile(r"kuaishou\.com/profile/([^/?#]+)", re.I)
 _KUAISHOU_USER = re.compile(r"(?:gifshow|chenzhongtech)\.com/user/([^/?#]+)", re.I)
 _REDNOTE_PROFILE = re.compile(r"rednote\.com/user/profile/([^/?#]+)", re.I)
 _XHS_PROFILE = re.compile(r"xiaohongshu\.com/user/profile/([^/?#]+)", re.I)
+_SHOPEE_SHOP = re.compile(r"shopee\.co\.id/([A-Za-z0-9._-]+)", re.I)
+_SHOPEE_SV_PROFILE = re.compile(r"sv\.shopee\.co\.id/profile/([^/?#]+)", re.I)
 
 _IG_RESERVED = frozenset(
     {"p", "reel", "reels", "tv", "stories", "explore", "accounts", "direct", "about"}
@@ -68,6 +70,52 @@ def parse_rednote_username(value: str) -> str:
     profiles = _REDNOTE_PROFILE.findall(raw) + _XHS_PROFILE.findall(raw)
     if profiles:
         return profiles[-1]
+
+    handle = _last_handle(raw)
+    if handle:
+        return handle
+
+    cleaned = raw.lstrip("@").strip().split("/")[0].split("?")[0]
+    if cleaned and not cleaned.lower().startswith("http"):
+        return cleaned
+    return cleaned
+
+
+_SHOPEE_RESERVED = frozenset(
+    {
+        "buy",
+        "cart",
+        "search",
+        "help",
+        "seller",
+        "mall",
+        "official",
+        "flash_sale",
+        "daily_discover",
+        "promotion",
+        "user",
+        "me",
+        "checkout",
+    }
+)
+
+
+def parse_shopee_username(value: str) -> str:
+    raw = value.strip()
+    if not raw:
+        return raw
+
+    sv_profiles = _SHOPEE_SV_PROFILE.findall(raw)
+    if sv_profiles:
+        return sv_profiles[-1]
+
+    shops = [
+        m
+        for m in _SHOPEE_SHOP.findall(raw)
+        if m.lower() not in _SHOPEE_RESERVED and "-i." not in m
+    ]
+    if shops:
+        return shops[-1].split("-i.")[0]
 
     handle = _last_handle(raw)
     if handle:

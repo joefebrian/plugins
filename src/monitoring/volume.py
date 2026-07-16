@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -24,6 +26,56 @@ def _dir_size(path: Path) -> int:
 
 def _bytes_to_gb(value: int) -> float:
     return round(value / (1024 ** 3), 3)
+
+
+def _pct(used: int, total: int) -> float:
+    if total <= 0:
+        return 0.0
+    return round(100 * used / total, 1)
+
+
+def _server_disk_stats(path: Path) -> dict:
+    """Filesystem capacity for the volume hosting download_dir."""
+    try:
+        usage = shutil.disk_usage(path)
+    except OSError:
+        return {
+            "total_bytes": 0,
+            "used_bytes": 0,
+            "free_bytes": 0,
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "free_gb": 0.0,
+            "used_pct": 0.0,
+            "mount_path": str(path),
+            "available": False,
+        }
+
+    quota_gb = os.getenv("STORAGE_QUOTA_GB", "").strip()
+    total_bytes = usage.total
+    quota_source = "filesystem"
+    if quota_gb:
+        try:
+            total_bytes = int(float(quota_gb) * (1024 ** 3))
+            quota_source = "env"
+        except ValueError:
+            total_bytes = usage.total
+
+    used_bytes = usage.used
+    free_bytes = max(0, total_bytes - used_bytes) if quota_source == "env" else usage.free
+
+    return {
+        "total_bytes": total_bytes,
+        "used_bytes": used_bytes,
+        "free_bytes": free_bytes,
+        "total_gb": _bytes_to_gb(total_bytes),
+        "used_gb": _bytes_to_gb(used_bytes),
+        "free_gb": _bytes_to_gb(free_bytes),
+        "used_pct": _pct(used_bytes, total_bytes),
+        "mount_path": str(path),
+        "available": True,
+        "quota_source": quota_source,
+    }
 
 
 def storage_volume_overview(
@@ -94,11 +146,15 @@ def storage_volume_overview(
             if legacy.exists():
                 legacy_dir_bytes += _dir_size(legacy)
 
+    server_disk = _server_disk_stats(download_dir)
+    server_total = server_disk.get("total_bytes") or 0
+
     return {
         "total_bytes": tracked_bytes,
         "total_gb": _bytes_to_gb(tracked_bytes),
         "disk_bytes": disk_bytes,
         "disk_gb": _bytes_to_gb(disk_bytes),
+        "disk_pct_of_server": _pct(disk_bytes, server_total),
         "legacy_bytes": legacy_dir_bytes,
         "legacy_gb": _bytes_to_gb(legacy_dir_bytes),
         "total_files": tracked_files,
@@ -106,4 +162,5 @@ def storage_volume_overview(
         "profiles_with_storage": sum(1 for row in profile_rows if row["bytes"] > 0),
         "profiles": profile_rows,
         "download_dir": str(user_dir),
+        "server_disk": server_disk,
     }

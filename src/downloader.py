@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from .db.models import Video
 from .scrapers.kuaishou_api import resolve_kuaishou_download_url
 from .scrapers.rednote_api import rednote_cdn_referer, resolve_rednote_download_url
+from .scrapers.shopee_api import resolve_shopee_download_url
 from .scrapers.tikwm import download_file, get_tiktok_video_url
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -125,6 +126,20 @@ class VideoDownloader:
             opts["cookiefile"] = self.cookies_file
         return opts
 
+    def _download_shopee(self, video: Video, target_dir: Path, username: str) -> Path:
+        stem = _sanitize_filename_stem(video.title or "", video.platform_video_id)
+        file_path = _unique_file_path(target_dir, stem)
+        source_url = resolve_shopee_download_url(
+            video.url,
+            cookies_file=self.cookies_file,
+            username=username,
+        )
+        download_file(source_url, str(file_path), referer="https://shopee.co.id/")
+        if not self._is_video_file(file_path):
+            file_path.unlink(missing_ok=True)
+            raise ValueError("Download Shopee gagal — file bukan video valid")
+        return file_path
+
     def _download_rednote(self, video: Video, target_dir: Path, username: str) -> Path:
         stem = _sanitize_filename_stem(video.title or "", video.platform_video_id)
         file_path = _unique_file_path(target_dir, stem)
@@ -200,6 +215,8 @@ class VideoDownloader:
             file_path = self._download_kuaishou(video, target_dir, username)
         elif platform == "rednote":
             file_path = self._download_rednote(video, target_dir, username)
+        elif platform == "shopee":
+            file_path = self._download_shopee(video, target_dir, username)
         else:
             file_path = self._download_via_ytdlp(video, target_dir)
 

@@ -834,7 +834,7 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
             <span class="badge badge-muted">Opsional</span>
           </div>
           <div class="panel-body">
-            <p class="modal-desc">Upload satu file export Netscape dari browser — sistem otomatis memisahkan cookies per platform (TikTok, Instagram, Kuaishou, RedNote).</p>
+            <p class="modal-desc">Upload satu file export Netscape dari browser — sistem otomatis memisahkan cookies per platform (TikTok, Instagram, Kuaishou, RedNote, Shopee).</p>
             <button type="button" class="btn btn-primary" id="btn-cookies-import">Upload cookies.txt</button>
           </div>
         </section>
@@ -966,6 +966,28 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
         </div>
 
         <div id="monitoring-section-volume" class="monitoring-section hidden">
+          <section class="panel panel-wide volume-server-panel" id="volume-server-panel">
+            <div class="panel-header">
+              <h3>Kapasitas Volume Server</h3>
+              <span class="badge" id="volume-server-status">—</span>
+            </div>
+            <div class="panel-body">
+              <div class="volume-server-meta">
+                <div class="volume-server-usage">
+                  <span class="volume-server-used" id="volume-server-used">—</span>
+                  <span class="volume-server-sep">/</span>
+                  <span class="volume-server-total" id="volume-server-total">—</span>
+                </div>
+                <div class="volume-server-free" id="volume-server-free">—</div>
+              </div>
+              <div class="volume-server-bar" id="volume-server-bar" title="Pemakaian disk server">
+                <span id="volume-server-bar-fill" style="width:0%"></span>
+              </div>
+              <p class="modal-desc oauth-table-hint" id="volume-server-hint">
+                Menampilkan total kapasitas disk/volume tempat file download disimpan di server.
+              </p>
+            </div>
+          </section>
           <div id="volume-summary-cards" class="oauth-summary-grid"></div>
           <section class="panel panel-wide">
             <div class="panel-header">
@@ -1155,7 +1177,7 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
     <div class="modal-backdrop"></div>
     <div class="modal-content">
       <h3>Scan Profil Baru</h3>
-      <p class="modal-desc">Masukkan username atau link profil TikTok, Instagram, Kuaishou, atau RedNote untuk sync semua video.</p>
+      <p class="modal-desc">Masukkan username atau link profil TikTok, Instagram, Kuaishou, RedNote, atau Shopee untuk sync semua video.</p>
       <form id="form-scan">
         <label>Platform</label>
         <div class="platform-picker">
@@ -1175,11 +1197,16 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
             <input type="radio" name="platform" value="rednote" />
             <span>RedNote</span>
           </label>
+          <label class="platform-option">
+            <input type="radio" name="platform" value="shopee" />
+            <span>Shopee</span>
+          </label>
         </div>
         <label>Username / User ID</label>
         <input type="text" name="username" placeholder="username, user ID (3x...), atau paste link profil" required />
         <p class="modal-desc">Kuaishou: paste link <code>kuaishou.com/profile/...</code> — butuh cookies kuaishou.com (upload di menu Cookies).</p>
         <p class="modal-desc">RedNote: paste link <code>rednote.com/user/profile/...</code> — login dulu di rednote.com, export cookies, upload di menu <strong>Cookies</strong> (status harus hijau, bukan tamu/guest).</p>
+        <p class="modal-desc">Shopee: paste username/link toko <code>shopee.co.id/nama_toko</code> — scan video produk toko. Untuk katalog penuh, login di shopee.co.id lalu upload cookies (wajib ada SPC_EC).</p>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" data-close> Batal</button>
           <button type="submit" class="btn btn-primary">Mulai Scan</button>

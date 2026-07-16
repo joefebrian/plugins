@@ -58,6 +58,15 @@ COOKIE_PLATFORMS: tuple[CookiePlatform, ...] = (
         export_site="rednote.com",
         hint="Login di rednote.com atau xiaohongshu.com → export cookies untuk scan & download.",
     ),
+    CookiePlatform(
+        id="shopee",
+        label="Shopee",
+        domains=("shopee.co.id", "shopee.com"),
+        filename="shopee.txt",
+        session_cookie_names=("SPC_EC", "SPC_ST"),
+        export_site="shopee.co.id",
+        hint="Login di shopee.co.id → buka halaman toko → export cookies (wajib ada SPC_EC) untuk scan katalog penuh.",
+    ),
 )
 
 _PLATFORM_BY_ID = {p.id: p for p in COOKIE_PLATFORMS}
@@ -197,12 +206,30 @@ def validate_platform_cookies(cookies_dir: Path, platform: str) -> dict:
                 if has_session
                 else f"Cookies {meta.label} belum valid"
             )
+            guest = not has_session
+    elif meta.id == "shopee":
+        try:
+            from .scrapers.shopee_api import check_shopee_login
+
+            session = check_shopee_login(path_str)
+            ok = bool(session.get("ok"))
+            message = session.get("message") or f"Cookies {meta.label}"
+            guest = bool(session.get("guest"))
+        except Exception as exc:
+            ok = has_session
+            message = (
+                f"Cookies {meta.label} ada tapi verifikasi sesi gagal: {exc}"
+                if has_session
+                else f"Cookies {meta.label} belum valid"
+            )
+            guest = not has_session
     elif meta.session_cookie_names:
         ok = has_session
         if ok:
             message = f"Cookies {meta.label} OK"
         else:
             message = f"Cookies {meta.label} ada tapi sesi login belum terdeteksi"
+        guest = None
     else:
         ok = count > 0
         message = f"Cookies {meta.label} OK" if ok else f"Cookies {meta.label} kosong"

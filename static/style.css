@@ -403,6 +403,60 @@ h1, h2, h3, .page-header h2, .panel-header h3, #profile-title {
   min-width: 2px;
 }
 
+.volume-server-panel .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.volume-server-meta {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.volume-server-usage {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.volume-server-used { color: var(--text); }
+.volume-server-sep { color: var(--text-muted); margin: 0 4px; font-weight: 500; }
+.volume-server-total { color: var(--text-muted); font-size: 22px; font-weight: 600; }
+
+.volume-server-free {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.volume-server-bar {
+  height: 14px;
+  background: var(--bg-elevated);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.volume-server-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  min-width: 2px;
+  transition: width 0.35s ease;
+}
+
+.volume-server-bar.warn span {
+  background: linear-gradient(90deg, var(--yellow), #f59e0b);
+}
+
+.volume-server-bar.critical span {
+  background: linear-gradient(90deg, var(--red), #ef4444);
+}
+
 .monitoring-tabs {
   display: flex;
   flex-wrap: wrap;

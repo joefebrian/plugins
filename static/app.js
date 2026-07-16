@@ -231,7 +231,7 @@ function buildProfileItemEl(p) {
   const el = document.createElement('div');
   el.className = 'profile-item' + (p.id === currentProfileId ? ' active' : '');
   el.dataset.id = p.id;
-  const icons = { tiktok: '🎵', instagram: '📸', kuaishou: '🎬', rednote: '📕' };
+  const icons = { tiktok: '🎵', instagram: '📸', kuaishou: '🎬', rednote: '📕', shopee: '🛒' };
   const icon = icons[p.platform] || '📱';
   el.innerHTML = `
     <div class="pi-icon">${icon}</div>
@@ -739,6 +739,14 @@ function normalizeUsernameInput(value) {
   const xhs = [...raw.matchAll(/xiaohongshu\.com\/user\/profile\/([^/?#]+)/gi)].map((m) => m[1]);
   if (xhs.length) return xhs[xhs.length - 1];
 
+  const sp = [...raw.matchAll(/shopee\.co\.id\/([A-Za-z0-9._-]+)/gi)]
+    .map((m) => m[1])
+    .filter((h) => !h.includes('-i.'));
+  if (sp.length) return sp[sp.length - 1];
+
+  const sv = [...raw.matchAll(/sv\.shopee\.co\.id\/profile\/([^/?#]+)/gi)].map((m) => m[1]);
+  if (sv.length) return sv[sv.length - 1];
+
   return raw.replace(/^@/, '').split('/')[0].split('?')[0];
 }
 
@@ -912,7 +920,7 @@ const MONITORING_SECTION_LABELS = {
 
 const MONITORING_SECTION_HINTS = {
   oauth: 'Pantau koneksi akun sosial per platform — terpisah dari Multiupload Platform.',
-  volume: 'Total GB video tersimpan di server dan profil mana yang paling banyak memakan storage.',
+  volume: 'Kapasitas disk server, pemakaian volume, dan profil mana yang paling banyak memakan storage.',
   ai: 'Kelola API key OpenAI & Gemini. System auto-rotate ke backup saat quota/token habis.',
 };
 
@@ -1197,20 +1205,73 @@ async function renderMonitoringConnectPanel(platform) {
   });
 }
 
+function renderVolumeServerPanel(data) {
+  const disk = data.server_disk || {};
+  const statusEl = $('#volume-server-status');
+  const usedEl = $('#volume-server-used');
+  const totalEl = $('#volume-server-total');
+  const freeEl = $('#volume-server-free');
+  const bar = $('#volume-server-bar');
+  const fill = $('#volume-server-bar-fill');
+  const hint = $('#volume-server-hint');
+  if (!usedEl || !totalEl) return;
+
+  if (!disk.available) {
+    if (statusEl) statusEl.textContent = 'Tidak tersedia';
+    usedEl.textContent = '—';
+    totalEl.textContent = '—';
+    if (freeEl) freeEl.textContent = 'Tidak bisa membaca kapasitas disk server';
+    if (fill) fill.style.width = '0%';
+    return;
+  }
+
+  const usedPct = disk.used_pct ?? 0;
+  const statusClass = usedPct >= 90 ? 'critical' : usedPct >= 75 ? 'warn' : 'ok';
+  if (statusEl) {
+    statusEl.textContent = `${usedPct}% terpakai`;
+    statusEl.className = `badge ${statusClass === 'ok' ? '' : statusClass}`;
+  }
+  usedEl.textContent = `${disk.used_gb ?? 0} GB`;
+  totalEl.textContent = `${disk.total_gb ?? 0} GB`;
+  if (freeEl) {
+    freeEl.textContent = `Sisa ${disk.free_gb ?? 0} GB (${fmtBytes(disk.free_bytes)})`;
+  }
+  if (bar) {
+    bar.classList.remove('warn', 'critical');
+    if (statusClass !== 'ok') bar.classList.add(statusClass);
+  }
+  if (fill) fill.style.width = `${Math.min(Math.max(usedPct, 0), 100)}%`;
+  if (hint) {
+    const quotaNote = disk.quota_source === 'env'
+      ? 'Kuota dari STORAGE_QUOTA_GB.'
+      : 'Kapasitas dari filesystem server/volume.';
+    const downloadsNote = data.disk_pct_of_server
+      ? ` Folder download kamu memakai ${data.disk_pct_of_server}% dari total disk.`
+      : '';
+    hint.textContent = `${quotaNote}${downloadsNote}`;
+  }
+}
+
 function renderVolumeSummaryCards(data) {
   const el = $('#volume-summary-cards');
   if (!el) return;
   const orphanBytes = Math.max(0, (data.disk_bytes || 0) - (data.total_bytes || 0));
+  const server = data.server_disk || {};
   el.innerHTML = `
     <div class="oauth-summary-card ok">
-      <div class="osc-label">Total Tersimpan</div>
+      <div class="osc-label">Video Kamu (DB)</div>
       <div class="osc-value">${data.total_gb ?? 0} GB</div>
       <div class="osc-sub">${fmtBytes(data.total_bytes)} · ${data.total_files || 0} file</div>
     </div>
     <div class="oauth-summary-card">
       <div class="osc-label">Folder User</div>
       <div class="osc-value">${data.disk_gb ?? 0} GB</div>
-      <div class="osc-sub">${fmtBytes(data.disk_bytes)} di storage</div>
+      <div class="osc-sub">${fmtBytes(data.disk_bytes)} · ${data.disk_pct_of_server ?? 0}% dari disk server</div>
+    </div>
+    <div class="oauth-summary-card ${server.available && (server.used_pct || 0) >= 75 ? 'warn' : ''}">
+      <div class="osc-label">Kapasitas Server</div>
+      <div class="osc-value">${server.total_gb ?? 0} GB</div>
+      <div class="osc-sub">${server.available ? `${server.used_gb ?? 0} GB terpakai · sisa ${server.free_gb ?? 0} GB` : 'Tidak tersedia'}</div>
     </div>
     <div class="oauth-summary-card">
       <div class="osc-label">Profil Aktif</div>
@@ -1251,6 +1312,7 @@ function renderVolumeProfilesTable(profiles) {
 async function loadMonitoringVolumePage() {
   try {
     const data = await api('/monitoring/volume');
+    renderVolumeServerPanel(data);
     renderVolumeSummaryCards(data);
     renderVolumeProfilesTable(data.profiles || []);
   } catch (e) {
@@ -3320,6 +3382,7 @@ const COOKIE_PLATFORM_ICONS = {
   instagram: '📸',
   kuaishou: '🎬',
   rednote: '📕',
+  shopee: '🛒',
 };
 
 function renderCookiesSummaryCards(summary) {

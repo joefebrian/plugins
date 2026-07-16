@@ -13,6 +13,7 @@ from .db.models import Video
 from .downloader import FORMAT_PRESETS, _sanitize_filename_stem
 from .scrapers.kuaishou_api import resolve_kuaishou_download_url
 from .scrapers.rednote_api import resolve_rednote_download_url
+from .scrapers.shopee_api import resolve_shopee_download_url
 from .scrapers.tikwm import get_tiktok_video_url
 
 
@@ -71,6 +72,15 @@ def resolve_direct_download_url(
             note_id=video.platform_video_id,
             cookies_file=cookies_file,
             user_id=principal_id or "",
+        )
+
+    if platform == "shopee":
+        if not principal_id:
+            raise ValueError("Profil Shopee tidak ditemukan untuk download")
+        return resolve_shopee_download_url(
+            video.url,
+            cookies_file=cookies_file,
+            username=principal_id,
         )
 
     opts: dict = {

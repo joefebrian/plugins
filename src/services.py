@@ -14,6 +14,7 @@ from .downloader import VideoDownloader
 from .scrapers.instagram import InstagramScraper
 from .scrapers.kuaishou import KuaishouScraper
 from .scrapers.rednote import RedNoteScraper
+from .scrapers.shopee import ShopeeScraper
 from .scrapers.tiktok import TikTokScraper
 
 
@@ -23,9 +24,10 @@ def get_scraper(platform: str, cookies_file: str | None = None):
         "instagram": InstagramScraper,
         "kuaishou": KuaishouScraper,
         "rednote": RedNoteScraper,
+        "shopee": ShopeeScraper,
     }
     if platform not in scrapers:
-        raise ValueError(f"Platform tidak didukung: {platform}. Gunakan: tiktok, instagram, kuaishou, rednote")
+        raise ValueError(f"Platform tidak didukung: {platform}. Gunakan: tiktok, instagram, kuaishou, rednote, shopee")
     return scrapers[platform](cookies_file=cookies_file)
 
 

@@ -54,7 +54,7 @@ def cli(ctx, db):
 
 
 @cli.command()
-@click.argument("platform", type=click.Choice(["tiktok", "instagram", "kuaishou", "rednote"]))
+@click.argument("platform", type=click.Choice(["tiktok", "instagram", "kuaishou", "rednote", "shopee"]))
 @click.argument("username")
 @click.option("--cookies", default=None, help="Path ke cookies.txt (wajib untuk Instagram private)")
 @click.pass_context
@@ -78,7 +78,7 @@ def scan(ctx, platform, username, cookies):
 
 
 @cli.command("list")
-@click.argument("platform", type=click.Choice(["tiktok", "instagram", "kuaishou", "rednote"]))
+@click.argument("platform", type=click.Choice(["tiktok", "instagram", "kuaishou", "rednote", "shopee"]))
 @click.argument("username")
 @click.option("--status", type=click.Choice(["all", "downloaded", "pending"]), default="all")
 @click.option("--sort", "sort_by", type=click.Choice(["gmv", "views", "likes"]), default="gmv")
@@ -122,7 +122,7 @@ def list_cmd(ctx, platform, username, status, sort_by):
 
 
 @cli.command()
-@click.argument("platform", type=click.Choice(["tiktok", "instagram", "kuaishou", "rednote"]))
+@click.argument("platform", type=click.Choice(["tiktok", "instagram", "kuaishou", "rednote", "shopee"]))
 @click.argument("username")
 @click.option("--limit", default=10, type=int, help="Max video yang di-download (default: 10)")
 @click.option("--all", "download_all", is_flag=True, help="Download ulang termasuk yang sudah ada")
@@ -179,7 +179,7 @@ def import_gmv(ctx, csv_path):
 
 
 @cli.command()
-@click.argument("platform", type=click.Choice(["tiktok", "instagram", "kuaishou", "rednote"]))
+@click.argument("platform", type=click.Choice(["tiktok", "instagram", "kuaishou", "rednote", "shopee"]))
 @click.argument("username")
 @click.option("--top", default=10, help="Jumlah hero video")
 @click.pass_context
