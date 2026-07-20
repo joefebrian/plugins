@@ -436,6 +436,7 @@ async function selectProfile(id) {
   renderProfile(profile);
   await loadVideos();
   await loadHeroes();
+  await loadDownloadedVideos();
 }
 
 function renderProfile(p) {
@@ -484,7 +485,16 @@ function parseContentDispositionFilename(cd) {
   return null;
 }
 
-async function triggerDirectDownload(videoDbId) {
+async function refreshProfileVideoGrids() {
+  if (!currentProfileId) return;
+  const profile = await api(`/profiles/${currentProfileId}`);
+  renderProfile(profile);
+  await loadVideos();
+  await loadHeroes();
+  await loadDownloadedVideos();
+}
+
+async function triggerDirectDownload(videoDbId, { refresh = true } = {}) {
   const quality = $('#download-quality')?.value || 'best';
   const res = await fetch(
     `/api/videos/${videoDbId}/direct-download?quality=${encodeURIComponent(quality)}`,
@@ -505,6 +515,12 @@ async function triggerDirectDownload(videoDbId) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+  // Refresh lists so status + Videos Downloaded grid update (PC download marks is_downloaded)
+  if (refresh && currentProfileId) {
+    try {
+      await refreshProfileVideoGrids();
+    } catch (_) { /* non-fatal */ }
+  }
 }
 
 async function downloadSelectedDirect() {
@@ -518,16 +534,19 @@ async function downloadSelectedDirect() {
   for (let i = 0; i < selected.length; i += 1) {
     if (i > 0) await new Promise((r) => setTimeout(r, 900));
     try {
-      await triggerDirectDownload(selected[i].dbId);
+      await triggerDirectDownload(selected[i].dbId, { refresh: false });
     } catch (e) {
       failed += 1;
       showToast(e.message, 'error');
     }
   }
+  try {
+    await refreshProfileVideoGrids();
+  } catch (_) { /* non-fatal */ }
   if (failed && failed < selected.length) {
     showToast(`${selected.length - failed} berhasil, ${failed} gagal`, 'error');
   } else if (!failed) {
-    showToast(`${selected.length} video selesai di-download`, 'success');
+    showToast(`${selected.length} video selesai di-download — masuk Videos Downloaded`, 'success');
   }
 }
 
@@ -587,14 +606,20 @@ async function loadVideos() {
 
   videos.forEach((v) => {
     const tr = document.createElement('tr');
+    if (v.is_downloaded) tr.classList.add('row-downloaded');
     const statusCls = v.is_downloaded ? 'status-downloaded' : 'status-pending';
-    const statusText = v.is_downloaded ? '✓ Sudah DL' : '○ Pending';
+    const statusText = v.is_downloaded
+      ? (v.has_server_file ? '✓ Server' : '✓ PC')
+      : '○ Pending';
+    const statusTitle = v.is_downloaded
+      ? (v.has_server_file ? 'Disimpan di server' : 'Sudah di-download ke PC')
+      : 'Belum didownload';
     const titleCls = v.is_downloaded ? 'video-title video-title-downloaded' : 'video-title';
     tr.innerHTML = `
       <td class="col-select"><input type="checkbox" class="video-select" data-db-id="${v.id}" data-video-id="${v.platform_video_id}" aria-label="Pilih video" /></td>
-      <td><span class="status-badge ${statusCls}" title="${v.is_downloaded ? 'Video pernah disimpan di server / sudah didownload' : 'Belum didownload'}">${statusText}</span></td>
+      <td><span class="status-badge ${statusCls}" title="${statusTitle}">${statusText}</span></td>
       <td>
-        <div class="${titleCls}" title="${v.is_downloaded ? 'Sudah pernah didownload' : ''}">${v.title || 'Untitled'}</div>
+        <div class="${titleCls}" title="${statusTitle}">${v.title || 'Untitled'}</div>
         <div class="video-id">${v.platform_video_id}</div>
       </td>
       <td>${fmtDateShort(v.posted_at)}</td>
@@ -607,7 +632,7 @@ async function loadVideos() {
         <button class="btn btn-sm btn-ghost" data-dl="${v.platform_video_id}" title="Simpan ke server">💾</button>
         <button class="btn btn-sm btn-ghost" data-edit="${v.id}" data-vid="${v.platform_video_id}" data-gmv="${v.gmv || ''}" data-comm="${v.commission || ''}" title="Edit GMV">✎</button>
         <button class="btn btn-sm btn-danger" data-del-video="${v.id}" title="Hapus video dari daftar">✕</button>
-        ${v.is_downloaded ? `<a class="btn btn-sm btn-ghost" href="/api/videos/${v.id}/file" target="_blank">▶</a>` : ''}
+        ${v.has_server_file ? `<a class="btn btn-sm btn-ghost" href="/api/videos/${v.id}/file" target="_blank">▶</a>` : ''}
         ${(v.youtube_uploads || []).map((u) => `<a class="btn btn-sm btn-ghost" href="${u.youtube_url}" target="_blank" title="${u.channel_title || 'YouTube'}">YT</a>`).join('')}
         ${!(v.youtube_uploads || []).length && v.youtube_url ? `<a class="btn btn-sm btn-ghost" href="${v.youtube_url}" target="_blank" title="YouTube">YT</a>` : ''}
         ${(v.facebook_uploads || []).map((u) => `<a class="btn btn-sm btn-ghost" href="${u.post_url}" target="_blank" title="${u.page_name || 'Facebook'}">FB</a>`).join('')}
@@ -620,7 +645,7 @@ async function loadVideos() {
     btn.onclick = async () => {
       try {
         await triggerDirectDownload(parseInt(btn.dataset.directDl, 10));
-        showToast('Download dimulai', 'success');
+        showToast('Download selesai — masuk Videos Downloaded', 'success');
       } catch (e) {
         showToast(e.message, 'error');
       }
@@ -637,6 +662,65 @@ async function loadVideos() {
   });
   tbody.querySelectorAll('.video-select').forEach((cb) => {
     cb.onchange = updateVideoSelectCount;
+  });
+}
+
+async function loadDownloadedVideos() {
+  if (!currentProfileId) return;
+  const tbody = $('#downloaded-video-table');
+  const emptyEl = $('#downloaded-empty');
+  const badge = $('#downloaded-count-badge');
+  if (!tbody) return;
+
+  const videos = await api(`/profiles/${currentProfileId}/videos?status=downloaded&sort_by=gmv`);
+  const downloaded = (videos || []).filter((v) => v.is_downloaded);
+  // Newest download first
+  downloaded.sort((a, b) => {
+    const ta = a.downloaded_at ? Date.parse(a.downloaded_at) : 0;
+    const tb = b.downloaded_at ? Date.parse(b.downloaded_at) : 0;
+    return tb - ta;
+  });
+
+  tbody.innerHTML = '';
+  if (badge) badge.textContent = `${downloaded.length} video`;
+  if (emptyEl) emptyEl.classList.toggle('hidden', downloaded.length > 0);
+
+  downloaded.forEach((v) => {
+    const tr = document.createElement('tr');
+    const loc = v.has_server_file ? 'Server' : 'PC';
+    const locCls = v.has_server_file ? 'loc-server' : 'loc-pc';
+    tr.innerHTML = `
+      <td>
+        <div class="video-title video-title-downloaded">${v.title || 'Untitled'}</div>
+        <div class="video-id">${v.platform_video_id}</div>
+      </td>
+      <td><span class="status-badge ${locCls}">${loc}</span></td>
+      <td>${fmtDateShort(v.downloaded_at)}</td>
+      <td>${fmtDateShort(v.posted_at)}</td>
+      <td>${fmtNum(v.views)}</td>
+      <td>${fmtNum(v.likes)}</td>
+      <td class="${v.gmv ? 'money' : 'money-empty'}">${fmtMoney(v.gmv)}</td>
+      <td>
+        <button class="btn btn-sm btn-secondary" data-direct-dl="${v.id}" title="Download ulang ke PC">↓</button>
+        ${!v.has_server_file ? `<button class="btn btn-sm btn-ghost" data-dl="${v.platform_video_id}" title="Simpan ke server">💾</button>` : ''}
+        ${v.has_server_file ? `<a class="btn btn-sm btn-ghost" href="/api/videos/${v.id}/file" target="_blank" title="Putar file server">▶</a>` : ''}
+        <a class="btn btn-sm btn-ghost" href="${v.url}" target="_blank">↗</a>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('[data-direct-dl]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await triggerDirectDownload(parseInt(btn.dataset.directDl, 10));
+        showToast('Download selesai', 'success');
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    };
+  });
+  tbody.querySelectorAll('[data-dl]').forEach((btn) => {
+    btn.onclick = () => downloadSingle(btn.dataset.dl);
   });
 }
 
@@ -692,12 +776,15 @@ async function loadHeroes() {
   data.videos.forEach((v, i) => {
     const el = document.createElement('div');
     el.className = 'hero-item';
+    const dlLabel = v.is_downloaded
+      ? (v.has_server_file ? '✓ Server' : '✓ PC')
+      : 'pending';
     el.innerHTML = `
       <div class="hero-rank">${i + 1}</div>
       <div class="hero-info">
         <div class="hero-title${v.is_downloaded ? ' video-title-downloaded' : ''}">${v.title || v.platform_video_id}</div>
         <div class="hero-gmv">${fmtMoney(v.gmv)}</div>
-        <div class="hero-meta">${fmtNum(v.views)} views · ${fmtNum(v.likes)} likes · ${v.is_downloaded ? '<span style="color:var(--red)">✓ Sudah DL</span>' : 'pending'}</div>
+        <div class="hero-meta">${fmtNum(v.views)} views · ${fmtNum(v.likes)} likes · ${v.is_downloaded ? `<span style="color:var(--red)">${dlLabel}</span>` : dlLabel}</div>
       </div>
       <a class="btn btn-sm btn-secondary" href="${v.url}" target="_blank">↗</a>`;
     list.appendChild(el);

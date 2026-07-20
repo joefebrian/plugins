@@ -68,6 +68,7 @@ from ..services import (
     get_scraper,
     list_profiles,
     list_videos,
+    mark_video_downloaded,
     parse_date_filter,
     profile_to_dict,
     sync_profile_videos,
@@ -1662,6 +1663,8 @@ def api_direct_download_video(
         referer = rednote_cdn_referer(source_url)
     else:
         referer = referers.get(profile.platform, "https://www.tiktok.com/")
+    # PC direct download also counts as downloaded → shows in Videos Downloaded grid
+    mark_video_downloaded(session, video)
     headers = {
         "Content-Disposition": content_disposition_attachment(filename),
         "Cache-Control": "no-store",

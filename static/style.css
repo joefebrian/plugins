@@ -1227,6 +1227,43 @@ tr.video-row-selected {
   gap: 16px;
 }
 
+
+.downloaded-panel {
+  margin-top: 16px;
+}
+
+.downloaded-panel .panel-hint {
+  margin: 0;
+  padding: 10px 20px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.downloaded-panel .table-wrap {
+  max-height: 360px;
+}
+
+.downloaded-empty {
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.loc-server {
+  background: rgba(0, 184, 148, 0.15);
+  color: var(--green);
+}
+
+.loc-pc {
+  background: rgba(116, 185, 255, 0.15);
+  color: #74b9ff;
+}
+
+.row-downloaded td {
+  opacity: 0.92;
+}
+
 @media (max-width: 1100px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { display: none; }

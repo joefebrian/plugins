@@ -366,12 +366,11 @@ def download_videos(
         return path.stat().st_size > 50_000
 
     for video in videos:
+        # Already on server with a valid file → skip
         if video.is_downloaded and video.file_path and _valid_existing(Path(video.file_path)):
             skipped += 1
             continue
-        if video.is_downloaded and not video.file_path:
-            skipped += 1
-            continue
+        # PC-only download (marked downloaded, no server file) or invalid file → save/re-save to server
         if video.is_downloaded and video.file_path:
             video.is_downloaded = False
             video.file_path = None
@@ -451,7 +450,25 @@ def profile_to_dict(profile: Profile, stats: dict | None = None) -> dict:
     return data
 
 
+def mark_video_downloaded(session: Session, video: Video, *, file_path: str | None = None) -> Video:
+    """Mark video as downloaded (PC direct and/or server save).
+
+    - PC download: is_downloaded=True, file_path unchanged (usually None).
+    - Server save: is_downloaded=True + file_path set by downloader.
+    """
+    video.is_downloaded = True
+    if file_path is not None:
+        video.file_path = file_path
+    if not video.downloaded_at:
+        video.downloaded_at = datetime.utcnow()
+    session.commit()
+    return video
+
+
 def video_to_dict(video: Video) -> dict:
+    has_server_file = bool(
+        video.file_path and Path(video.file_path).exists() and Path(video.file_path).stat().st_size > 0
+    )
     return {
         "id": video.id,
         "platform_video_id": video.platform_video_id,
@@ -466,6 +483,8 @@ def video_to_dict(video: Video) -> dict:
         "commission": video.commission,
         "orders": video.orders,
         "is_downloaded": video.is_downloaded,
+        "has_server_file": has_server_file,
+        "download_location": "server" if has_server_file else ("pc" if video.is_downloaded else None),
         "downloaded_at": video.downloaded_at.isoformat() if video.downloaded_at else None,
         "file_path": video.file_path,
         "posted_at": video.posted_at.isoformat() if video.posted_at else None,
