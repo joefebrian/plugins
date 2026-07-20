@@ -1,21 +1,38 @@
 .venv
 .git
 .gitignore
+.github
 __pycache__
+**/__pycache__
 *.py[cod]
+*$py.class
 .env
+.env.*
+!.env.example
 .DS_Store
 .idea
 .vscode
+*.md
+!README.md
 
-data/downloads
-data/cookies
-data/*.db
-data/auth.json
-data/.secret
-data/test_*
-data/*.mp4
-data/*.mp3
+# Local data / media — use Railway Volume, never bake into image
+data/
+data/**
+!data/.gitkeep
 
+# Local scripts & dev-only
 expose.sh
 run-web.sh
+requirements-dev.txt
+**/tests
+**/*_test.py
+**/test_*.py
+*.log
+*.mp4
+*.mp3
+*.mov
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov

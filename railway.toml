@@ -3,7 +3,19 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+# Single replica = linear cost control (don't scale horizontally unless needed)
+numReplicas = 1
 healthcheckPath = "/api/health"
-healthcheckTimeout = 300
+# Fail faster so broken deploys don't burn billable minutes
+healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
+restartPolicyMaxRetries = 5
+
+# Lightweight runtime defaults (Railway injects these as env vars)
+[variables]
+# Threads autopost tick: 5 min — fewer DB wake-ups when idle
+THREADS_AUTOPOST_TICK_SECONDS = "300"
+# Cap concurrent requests / memory spikes during downloads
+UVICORN_LIMIT_CONCURRENCY = "30"
+UVICORN_TIMEOUT_KEEP_ALIVE = "5"
+UVICORN_LOG_LEVEL = "warning"

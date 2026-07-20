@@ -1,0 +1,5 @@
+# Local CLI + optional heavy extras (NOT used on Railway image)
+-r requirements.txt
+click>=8.0.0
+rich>=13.0.0
+playwright>=1.40.0

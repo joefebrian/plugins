@@ -364,7 +364,11 @@ def _playwright_fetch_items(
     max_pages: int = 20,
     page_size: int = 30,
 ) -> list[dict]:
-    from playwright.sync_api import sync_playwright
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as e:
+        # Playwright not in Railway image (keeps deploy light). API/SEO fallbacks still run.
+        raise RuntimeError("playwright not installed") from e
 
     profile_url = f"{SHOPEE_ORIGIN}/{quote(username)}#product_list"
     collected: list[dict] = []

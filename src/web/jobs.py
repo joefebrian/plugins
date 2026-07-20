@@ -1,12 +1,16 @@
-"""Simple in-memory background job tracker."""
+"""Simple in-memory background job tracker (bounded memory)."""
 
 from __future__ import annotations
 
 import threading
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Optional
+
+# Keep Railway RAM low: drop finished jobs after TTL / hard cap
+_MAX_JOBS = 40
+_JOB_TTL = timedelta(hours=1)
 
 
 @dataclass
@@ -25,14 +29,45 @@ class JobManager:
         self._jobs: Dict[str, Job] = {}
         self._lock = threading.Lock()
 
+    def _prune_locked(self) -> None:
+        now = datetime.utcnow()
+        expired = [
+            jid
+            for jid, job in self._jobs.items()
+            if job.status in ("done", "error")
+            and job.finished_at
+            and (now - job.finished_at) > _JOB_TTL
+        ]
+        for jid in expired:
+            del self._jobs[jid]
+
+        if len(self._jobs) <= _MAX_JOBS:
+            return
+        # Drop oldest finished first, then oldest overall
+        finished = sorted(
+            (
+                (j.finished_at or j.created_at, jid)
+                for jid, j in self._jobs.items()
+                if j.status in ("done", "error")
+            ),
+            key=lambda x: x[0],
+        )
+        for _, jid in finished:
+            if len(self._jobs) <= _MAX_JOBS:
+                break
+            self._jobs.pop(jid, None)
+
     def create(self, job_type: str) -> Job:
         job = Job(id=str(uuid.uuid4())[:8], type=job_type)
         with self._lock:
+            self._prune_locked()
             self._jobs[job.id] = job
         return job
 
     def get(self, job_id: str) -> Optional[Job]:
-        return self._jobs.get(job_id)
+        with self._lock:
+            self._prune_locked()
+            return self._jobs.get(job_id)
 
     def run(self, job: Job, fn: Callable[[], Any], message: str = "Processing..."):
         def _worker():
@@ -48,6 +83,8 @@ class JobManager:
                 job.message = str(e)
             finally:
                 job.finished_at = datetime.utcnow()
+                with self._lock:
+                    self._prune_locked()
 
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
