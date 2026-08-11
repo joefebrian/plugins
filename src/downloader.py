@@ -99,15 +99,41 @@ class VideoDownloader:
         return _unique_file_path(target_dir, stem)
 
     def _download_tiktok(self, video: Video, target_dir: Path) -> Path:
-        meta = get_tiktok_video_url(video.url, self.quality)
-        file_path = self._tiktok_download_path(video, target_dir, meta.get("title"))
-        download_file(meta["download_url"], str(file_path))
-        if not self._is_video_file(file_path):
+        file_path = self._tiktok_download_path(video, target_dir)
+        last_err: Exception | None = None
+
+        # 1) TikWM CDN URLs (HD → play → wm) with multi-referer on 403
+        try:
+            meta = get_tiktok_video_url(video.url, self.quality)
+            file_path = self._tiktok_download_path(video, target_dir, meta.get("title"))
+            download_file(
+                meta["download_url"],
+                str(file_path),
+                candidates=meta.get("candidates"),
+            )
+            if self._is_video_file(file_path):
+                if meta.get("title"):
+                    video.title = video.title or meta["title"]
+                return file_path
             file_path.unlink(missing_ok=True)
-            raise ValueError("Download gagal — file bukan video valid")
-        if meta.get("title"):
-            video.title = video.title or meta["title"]
-        return file_path
+            last_err = ValueError("Download gagal — file bukan video valid")
+        except Exception as e:
+            last_err = e
+            file_path.unlink(missing_ok=True)
+
+        # 2) Fallback yt-dlp (cookies help when TikTok blocks CDN)
+        try:
+            ytdlp_path = self._download_via_ytdlp(video, target_dir)
+            if self._is_video_file(ytdlp_path):
+                return ytdlp_path
+            ytdlp_path.unlink(missing_ok=True)
+        except Exception as e:
+            last_err = e
+
+        raise ValueError(
+            f"Gagal download TikTok: {last_err}. "
+            "Upload cookies TikTok di Settings → Cookies jika 403 berulang."
+        )
 
     def _yt_dlp_opts(self, output_template: str) -> dict:
         opts = {
@@ -120,7 +146,15 @@ class VideoDownloader:
             "writethumbnail": False,
             "writeinfojson": False,
             "postprocessors": [],
-            "retries": 3,
+            "retries": 5,
+            "fragment_retries": 5,
+            "http_headers": {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                ),
+                "Referer": "https://www.tiktok.com/",
+            },
         }
         if self.cookies_file and Path(self.cookies_file).exists():
             opts["cookiefile"] = self.cookies_file
@@ -186,6 +220,24 @@ class VideoDownloader:
             )
         return file_path
 
+    def _download_into_dir(
+        self,
+        video: Video,
+        platform: str,
+        username: str,
+        target_dir: Path,
+    ) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if platform == "tiktok":
+            return self._download_tiktok(video, target_dir)
+        if platform == "kuaishou":
+            return self._download_kuaishou(video, target_dir, username)
+        if platform == "rednote":
+            return self._download_rednote(video, target_dir, username)
+        if platform == "shopee":
+            return self._download_shopee(video, target_dir, username)
+        return self._download_via_ytdlp(video, target_dir)
+
     def download_video(
         self,
         session: Session,
@@ -209,19 +261,20 @@ class VideoDownloader:
             video.is_downloaded = False
             video.file_path = None
 
-        if platform == "tiktok":
-            file_path = self._download_tiktok(video, target_dir)
-        elif platform == "kuaishou":
-            file_path = self._download_kuaishou(video, target_dir, username)
-        elif platform == "rednote":
-            file_path = self._download_rednote(video, target_dir, username)
-        elif platform == "shopee":
-            file_path = self._download_shopee(video, target_dir, username)
-        else:
-            file_path = self._download_via_ytdlp(video, target_dir)
+        file_path = self._download_into_dir(video, platform, username, target_dir)
 
         video.is_downloaded = True
         video.downloaded_at = datetime.utcnow()
         video.file_path = str(file_path)
         session.commit()
         return file_path
+
+    def download_ephemeral(
+        self,
+        video: Video,
+        platform: str,
+        username: str,
+        target_dir: Path,
+    ) -> Path:
+        """Download video into target_dir without setting video.file_path (temp analyse)."""
+        return self._download_into_dir(video, platform, username, target_dir)

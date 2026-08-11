@@ -47,7 +47,7 @@ from ..scrapers.rednote_api import rednote_cdn_referer
 from ..direct_download import (
     content_disposition_attachment,
     direct_download_filename,
-    resolve_direct_download_url,
+    resolve_direct_download_sources,
     stream_remote_video,
 )
 from ..profile_folders import (
@@ -1640,7 +1640,7 @@ def api_direct_download_video(
     cookies_file = _cookies_path_for(profile.platform)
 
     try:
-        source_url = resolve_direct_download_url(
+        sources = resolve_direct_download_sources(
             video,
             profile.platform,
             quality=quality,
@@ -1652,6 +1652,10 @@ def api_direct_download_video(
     except Exception as e:
         raise HTTPException(400, f"Gagal mengambil video: {e}") from e
 
+    if not sources:
+        raise HTTPException(400, "Gagal mengambil video: tidak ada URL download")
+
+    source_url = sources[0]
     filename = direct_download_filename(video)
     referers = {
         "tiktok": "https://www.tiktok.com/",
@@ -1670,7 +1674,11 @@ def api_direct_download_video(
         "Cache-Control": "no-store",
     }
     return StreamingResponse(
-        stream_remote_video(source_url, referer=referer),
+        stream_remote_video(
+            source_url,
+            referer=referer,
+            fallback_urls=sources,
+        ),
         media_type="video/mp4",
         headers=headers,
     )

@@ -14,7 +14,7 @@ from .downloader import FORMAT_PRESETS, _sanitize_filename_stem
 from .scrapers.kuaishou_api import resolve_kuaishou_download_url
 from .scrapers.rednote_api import resolve_rednote_download_url
 from .scrapers.shopee_api import resolve_shopee_download_url
-from .scrapers.tikwm import get_tiktok_video_url
+from .scrapers.tikwm import BROWSER_UA, get_tiktok_video_url, open_cdn_stream
 
 
 def direct_download_filename(video: Video) -> str:
@@ -50,50 +50,90 @@ def resolve_direct_download_url(
     cookies_file: Optional[str] = None,
     principal_id: Optional[str] = None,
 ) -> str:
+    """Primary URL only. Prefer resolve_direct_download_sources for TikTok fallbacks."""
+    sources = resolve_direct_download_sources(
+        video,
+        platform,
+        quality=quality,
+        cookies_file=cookies_file,
+        principal_id=principal_id,
+    )
+    return sources[0]
+
+
+def resolve_direct_download_sources(
+    video: Video,
+    platform: str,
+    *,
+    quality: str = "best",
+    cookies_file: Optional[str] = None,
+    principal_id: Optional[str] = None,
+) -> list[str]:
+    """Ordered list of CDN/page URLs to try (first is preferred)."""
     q = quality if quality in FORMAT_PRESETS else "best"
 
     if platform == "tiktok":
-        meta = get_tiktok_video_url(video.url, q)
-        return meta["download_url"]
+        try:
+            meta = get_tiktok_video_url(video.url, q)
+            candidates = list(meta.get("candidates") or [])
+            if meta.get("download_url") and meta["download_url"] not in candidates:
+                candidates.insert(0, meta["download_url"])
+            if candidates:
+                return candidates
+        except Exception:
+            pass
+        # Fallback: yt-dlp direct URL
+        return [_ytdlp_url(video.url, q, cookies_file)]
 
     if platform == "kuaishou":
         if not principal_id:
             raise ValueError("Profil Kuaishou tidak ditemukan untuk download")
-        return resolve_kuaishou_download_url(
-            video.url,
-            principal_id,
-            photo_id=video.platform_video_id,
-            cookies_file=cookies_file,
-        )
+        return [
+            resolve_kuaishou_download_url(
+                video.url,
+                principal_id,
+                photo_id=video.platform_video_id,
+                cookies_file=cookies_file,
+            )
+        ]
 
     if platform == "rednote":
-        return resolve_rednote_download_url(
-            video.url,
-            note_id=video.platform_video_id,
-            cookies_file=cookies_file,
-            user_id=principal_id or "",
-        )
+        return [
+            resolve_rednote_download_url(
+                video.url,
+                note_id=video.platform_video_id,
+                cookies_file=cookies_file,
+                user_id=principal_id or "",
+            )
+        ]
 
     if platform == "shopee":
         if not principal_id:
             raise ValueError("Profil Shopee tidak ditemukan untuk download")
-        return resolve_shopee_download_url(
-            video.url,
-            cookies_file=cookies_file,
-            username=principal_id,
-        )
+        return [
+            resolve_shopee_download_url(
+                video.url,
+                cookies_file=cookies_file,
+                username=principal_id,
+            )
+        ]
 
+    return [_ytdlp_url(video.url, q, cookies_file)]
+
+
+def _ytdlp_url(page_url: str, quality: str, cookies_file: Optional[str]) -> str:
     opts: dict = {
         "quiet": True,
         "no_warnings": True,
-        "format": FORMAT_PRESETS[q],
+        "format": FORMAT_PRESETS[quality],
         "skip_download": True,
+        "http_headers": {"User-Agent": BROWSER_UA, "Referer": "https://www.tiktok.com/"},
     }
     if cookies_file:
         opts["cookiefile"] = cookies_file
 
     with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(video.url, download=False)
+        info = ydl.extract_info(page_url, download=False)
 
     if not info:
         raise ValueError("Gagal mengambil URL video")
@@ -113,20 +153,53 @@ def stream_remote_video(
     url: str,
     *,
     referer: str = "https://www.tiktok.com/",
+    fallback_urls: Optional[list[str]] = None,
 ) -> Generator[bytes, None, None]:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": referer,
-        },
-    )
-    resp = urllib.request.urlopen(req, timeout=300)
+    urls = list(fallback_urls or [])
+    if url and url not in urls:
+        urls.insert(0, url)
+
+    last_err: Exception | None = None
+    for u in urls:
+        try:
+            resp = open_cdn_stream(u, referer=referer)
+            try:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                resp.close()
+            return
+        except Exception as e:
+            last_err = e
+            continue
+
+    # Last resort: simple request with browser UA
     try:
-        while True:
-            chunk = resp.read(65536)
-            if not chunk:
-                break
-            yield chunk
-    finally:
-        resp.close()
+        req = urllib.request.Request(
+            urls[0],
+            headers={
+                "User-Agent": BROWSER_UA,
+                "Referer": referer,
+                "Origin": "https://www.tiktok.com",
+            },
+        )
+        resp = urllib.request.urlopen(req, timeout=300)
+        try:
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            resp.close()
+        return
+    except Exception as e:
+        last_err = e
+
+    raise ValueError(
+        f"Gagal mengambil video: {last_err or 'HTTP Error 403: Forbidden'}. "
+        "Coba upload cookies TikTok di Settings, atau download ulang sebentar lagi."
+    )
