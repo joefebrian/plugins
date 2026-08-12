@@ -1639,18 +1639,25 @@ def api_direct_download_video(
     video, profile = _get_owned_video(session, video_id, user_id)
     cookies_file = _cookies_path_for(profile.platform)
 
+    from ..ytdlp_util import format_ytdlp_error
+
     try:
         sources = resolve_direct_download_sources(
             video,
             profile.platform,
             quality=quality,
             cookies_file=cookies_file,
-            principal_id=profile.username if profile.platform in ("kuaishou", "rednote", "shopee") else None,
+            # TikTok also needs username to rebuild absolute video URLs
+            principal_id=profile.username
+            if profile.platform in ("tiktok", "kuaishou", "rednote", "shopee")
+            else None,
         )
     except ValueError as e:
-        raise HTTPException(400, str(e)) from e
+        raise HTTPException(400, str(e) or "Gagal mengambil video") from e
     except Exception as e:
-        raise HTTPException(400, f"Gagal mengambil video: {e}") from e
+        raise HTTPException(
+            400, f"Gagal mengambil video: {format_ytdlp_error(e)}"
+        ) from e
 
     if not sources:
         raise HTTPException(400, "Gagal mengambil video: tidak ada URL download")
@@ -1667,18 +1674,44 @@ def api_direct_download_video(
         referer = rednote_cdn_referer(source_url)
     else:
         referer = referers.get(profile.platform, "https://www.tiktok.com/")
-    # PC direct download also counts as downloaded → shows in Videos Downloaded grid
-    mark_video_downloaded(session, video)
+
+    video_db_id = video.id
+
+    def _stream_and_mark():
+        # Only mark after first successful bytes. Use a fresh session — request
+        # session is closed once StreamingResponse starts iterating.
+        marked = False
+        try:
+            for chunk in stream_remote_video(
+                source_url,
+                referer=referer,
+                fallback_urls=sources,
+            ):
+                if not marked and chunk:
+                    from ..db.models import Video as VideoModel, init_db
+                    from .deps import DB_PATH
+
+                    mark_session = init_db(DB_PATH)
+                    try:
+                        row = mark_session.query(VideoModel).filter_by(id=video_db_id).first()
+                        if row:
+                            mark_video_downloaded(mark_session, row)
+                        marked = True
+                    finally:
+                        mark_session.close()
+                yield chunk
+        except Exception as e:
+            raise ValueError(
+                f"Gagal mengambil video: {format_ytdlp_error(e)}. "
+                "Coba upload cookies TikTok di Settings, atau download ulang sebentar lagi."
+            ) from e
+
     headers = {
         "Content-Disposition": content_disposition_attachment(filename),
         "Cache-Control": "no-store",
     }
     return StreamingResponse(
-        stream_remote_video(
-            source_url,
-            referer=referer,
-            fallback_urls=sources,
-        ),
+        _stream_and_mark(),
         media_type="video/mp4",
         headers=headers,
     )

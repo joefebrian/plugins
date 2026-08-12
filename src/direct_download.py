@@ -61,6 +61,28 @@ def resolve_direct_download_url(
     return sources[0]
 
 
+def _normalize_tiktok_page_url(video: Video, principal_id: Optional[str] = None) -> str:
+    """Ensure absolute https://www.tiktok.com/@user/video/ID URL for TikWM / yt-dlp."""
+    url = (video.url or "").strip()
+    vid = (video.platform_video_id or "").strip()
+    handle = (principal_id or "").lstrip("@").strip()
+    if url.startswith("http") and "/video/" in url:
+        return url
+    if vid and handle:
+        return f"https://www.tiktok.com/@{handle}/video/{vid}"
+    if vid and url.startswith("@"):
+        return f"https://www.tiktok.com/{url}/video/{vid}" if "/video/" not in url else f"https://www.tiktok.com/{url}"
+    if vid:
+        # Bare id or relative path — username unknown; still better than bare id for TikWM
+        if url.isdigit() or not url:
+            return f"https://www.tiktok.com/video/{vid}"
+        if url.startswith("/"):
+            return f"https://www.tiktok.com{url}"
+    if url.startswith("/"):
+        return f"https://www.tiktok.com{url}"
+    return url
+
+
 def resolve_direct_download_sources(
     video: Video,
     platform: str,
@@ -71,19 +93,38 @@ def resolve_direct_download_sources(
 ) -> list[str]:
     """Ordered list of CDN/page URLs to try (first is preferred)."""
     q = quality if quality in FORMAT_PRESETS else "best"
+    errors: list[str] = []
 
     if platform == "tiktok":
+        page_url = _normalize_tiktok_page_url(video, principal_id)
+        if page_url and page_url != (video.url or ""):
+            video.url = page_url
+        if not page_url:
+            raise ValueError("URL video TikTok kosong — scan ulang profil")
         try:
-            meta = get_tiktok_video_url(video.url, q)
+            meta = get_tiktok_video_url(page_url, q)
             candidates = list(meta.get("candidates") or [])
             if meta.get("download_url") and meta["download_url"] not in candidates:
                 candidates.insert(0, meta["download_url"])
             if candidates:
                 return candidates
-        except Exception:
-            pass
+            errors.append("TikWM: no candidates")
+        except Exception as e:
+            from .ytdlp_util import format_ytdlp_error
+
+            errors.append(f"TikWM: {format_ytdlp_error(e)}")
         # Fallback: yt-dlp direct URL
-        return [_ytdlp_url(video.url, q, cookies_file)]
+        try:
+            return [_ytdlp_url(page_url, q, cookies_file)]
+        except Exception as e:
+            from .ytdlp_util import format_ytdlp_error
+
+            errors.append(f"yt-dlp: {format_ytdlp_error(e)}")
+            raise ValueError(
+                "Gagal mengambil video: "
+                + "; ".join(errors)
+                + ". Upload cookies TikTok di Settings, atau coba lagi."
+            ) from e
 
     if platform == "kuaishou":
         if not principal_id:
@@ -129,6 +170,8 @@ def _ytdlp_url(page_url: str, quality: str, cookies_file: Optional[str]) -> str:
         if is_tt
         else FORMAT_PRESETS.get(quality, FORMAT_PRESETS["best"])
     )
+    from .ytdlp_util import apply_chrome_impersonate
+
     opts: dict = {
         "quiet": True,
         "no_warnings": True,
@@ -137,12 +180,7 @@ def _ytdlp_url(page_url: str, quality: str, cookies_file: Optional[str]) -> str:
         "skip_download": True,
         "http_headers": {"User-Agent": BROWSER_UA, "Referer": "https://www.tiktok.com/"},
     }
-    try:
-        import curl_cffi  # noqa: F401
-
-        opts["impersonate"] = "chrome"
-    except ImportError:
-        pass
+    apply_chrome_impersonate(opts)
     if cookies_file:
         opts["cookiefile"] = cookies_file
 
@@ -215,7 +253,9 @@ def stream_remote_video(
     except Exception as e:
         last_err = e
 
+    from .ytdlp_util import format_ytdlp_error
+
     raise ValueError(
-        f"Gagal mengambil video: {last_err or 'HTTP Error 403: Forbidden'}. "
+        f"Gagal mengambil video: {format_ytdlp_error(last_err, 'HTTP Error 403: Forbidden')}. "
         "Coba upload cookies TikTok di Settings, atau download ulang sebentar lagi."
     )

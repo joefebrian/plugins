@@ -180,8 +180,11 @@ def download_file(
                     break
                 continue
 
+    err_text = str(last_err).strip() if last_err else ""
+    if not err_text and last_err is not None:
+        err_text = type(last_err).__name__
     raise ValueError(
-        f"Gagal mengambil video: {last_err or 'HTTP Error 403: Forbidden'}. "
+        f"Gagal mengambil video: {err_text or 'HTTP Error 403: Forbidden'}. "
         "TikTok memblok IP server — pastikan cookies TikTok ter-upload di Settings, "
         "atau download dari local PC."
     )

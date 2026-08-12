@@ -130,8 +130,10 @@ class VideoDownloader:
         except Exception as e:
             last_err = e
 
+        from .ytdlp_util import format_ytdlp_error
+
         raise ValueError(
-            f"Gagal download TikTok: {last_err}. "
+            f"Gagal download TikTok: {format_ytdlp_error(last_err)}. "
             "Upload cookies TikTok di Settings → Cookies jika 403 berulang."
         )
 
@@ -166,12 +168,9 @@ class VideoDownloader:
         if not for_tiktok:
             opts["format_sort"] = ["res", "fps", "codec:h264", "size", "br"]
         # curl_cffi chrome impersonation (requires yt-dlp[curl-cffi])
-        try:
-            import curl_cffi  # noqa: F401
+        from .ytdlp_util import apply_chrome_impersonate
 
-            opts["impersonate"] = "chrome"
-        except ImportError:
-            pass
+        apply_chrome_impersonate(opts)
         if self.cookies_file and Path(self.cookies_file).exists():
             opts["cookiefile"] = self.cookies_file
         return opts

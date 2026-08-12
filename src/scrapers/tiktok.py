@@ -47,57 +47,88 @@ class TikTokScraper(BaseScraper):
         profile_url = self.build_profile_url(username)
         scan_url = self.build_scan_url(username)
 
-        opts = self._base_opts()
-        # TikTok scrape is flaky — cookies + chrome impersonation help
-        try:
-            import curl_cffi  # noqa: F401
-
-            opts["impersonate"] = "chrome"
-        except ImportError:
-            pass
-        opts["http_headers"] = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-            ),
-            "Referer": "https://www.tiktok.com/",
-        }
-
-        incremental = bool(known_video_ids)
-        if incremental:
-            opts["lazy_playlist"] = True
-            opts["playlistend"] = self.INCREMENTAL_PLAYLIST_LIMIT
+        from ..ytdlp_util import apply_chrome_impersonate, format_ytdlp_error
 
         import yt_dlp
 
+        incremental = bool(known_video_ids)
+
+        def _make_opts(*, use_cookies: bool, ignore_errors: bool) -> dict:
+            o = self._base_opts()
+            # Stale TikTok cookies sometimes break profile extract ("secondary user ID").
+            if not use_cookies:
+                o.pop("cookiefile", None)
+            apply_chrome_impersonate(o)
+            o["http_headers"] = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                ),
+                "Referer": "https://www.tiktok.com/",
+            }
+            o["ignoreerrors"] = ignore_errors
+            if incremental:
+                o["lazy_playlist"] = True
+                o["playlistend"] = self.INCREMENTAL_PLAYLIST_LIMIT
+            return o
+
         last_err: Exception | None = None
         info = None
-        # Try preferred scan URL, then fall back to @username web URL
-        for attempt_url in (scan_url, profile_url):
+        # Prefer @username web URL first (more reliable with chrome impersonate).
+        # Fall back to tiktokuser:ID when platform_user_id is known.
+        attempt_urls: list[str] = []
+        for u in (profile_url, scan_url):
+            if u and u not in attempt_urls:
+                attempt_urls.append(u)
+
+        # Modes: cookies on/off × strict/soft errors.
+        # Soft (ignoreerrors) often still returns playlist items when yt-dlp logs
+        # "secondary user ID" once, which strict mode turns into hard failure.
+        modes: list[tuple[bool, bool]] = []
+        if self.cookies_file:
+            modes.append((True, False))
+            modes.append((True, True))
+        modes.append((False, False))
+        modes.append((False, True))
+
+        for use_cookies, ignore_errors in modes:
             if info is not None:
                 break
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(attempt_url, download=False)
-                if info and (info.get("entries") or not incremental):
-                    break
-            except Exception as e:
-                last_err = e
-                info = None
-                continue
+            opts = _make_opts(use_cookies=use_cookies, ignore_errors=ignore_errors)
+            for attempt_url in attempt_urls:
+                try:
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(attempt_url, download=False)
+                    entries_probe = list((info or {}).get("entries") or [])
+                    entries_probe = [e for e in entries_probe if e]
+                    if entries_probe:
+                        info = dict(info or {})
+                        info["entries"] = entries_probe
+                        break
+                    if info and not incremental and not entries_probe:
+                        last_err = ValueError("empty entries")
+                        info = None
+                    elif not info:
+                        last_err = ValueError("empty extract result")
+                except Exception as e:
+                    last_err = e
+                    info = None
+                    continue
 
-        entries = (info or {}).get("entries") or []
+        entries = list((info or {}).get("entries") or [])
         if not entries and not incremental:
+            detail = format_ytdlp_error(last_err, "empty entries")
             hint = ""
-            if last_err and "secondary user ID" in str(last_err):
+            if "secondary user ID" in detail or "secondary user id" in detail.lower():
                 hint = (
-                    " TikTok menolak extract by @username — butuh channel_id numerik "
-                    "(akan diisi otomatis dari video sample / Scan Ulang setelah cookies)."
+                    " TikTok menolak extract by @username — coba Scan Ulang, "
+                    "re-upload cookies TikTok yang baru, atau pastikan min. 1 video URL valid."
                 )
             raise ValueError(
                 f"Tidak bisa mengakses profil: {profile_url}.{hint} "
-                f"Detail: {last_err or 'empty entries'}. "
-                "Upload cookies TikTok di Settings, atau pastikan ada min. 1 video URL valid."
+                f"Detail: {detail}. "
+                "Upload cookies TikTok di Settings (file baru dari browser), "
+                "atau pastikan ada min. 1 video URL valid."
             )
 
         videos = []
@@ -139,9 +170,11 @@ class TikTokScraper(BaseScraper):
             )
 
         if not videos and not incremental:
+            from ..ytdlp_util import format_ytdlp_error
+
             raise ValueError(
                 f"Tidak bisa mengakses profil: {profile_url}. "
-                f"Detail: {last_err or 'no videos'}"
+                f"Detail: {format_ytdlp_error(last_err, 'no videos')}"
             )
 
         return profile_url, videos

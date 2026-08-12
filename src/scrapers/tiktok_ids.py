@@ -80,6 +80,8 @@ def extract_author_ids_from_ytdlp(
 ) -> dict[str, str | None]:
     import yt_dlp
 
+    from ..ytdlp_util import apply_chrome_impersonate
+
     opts: dict = {
         "quiet": True,
         "no_warnings": True,
@@ -89,12 +91,7 @@ def extract_author_ids_from_ytdlp(
             "Referer": "https://www.tiktok.com/",
         },
     }
-    try:
-        import curl_cffi  # noqa: F401
-
-        opts["impersonate"] = "chrome"
-    except ImportError:
-        pass
+    apply_chrome_impersonate(opts)
     if cookies_file:
         opts["cookiefile"] = cookies_file
 
