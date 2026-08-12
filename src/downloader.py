@@ -135,13 +135,20 @@ class VideoDownloader:
             "Upload cookies TikTok di Settings → Cookies jika 403 berulang."
         )
 
-    def _yt_dlp_opts(self, output_template: str) -> dict:
-        opts = {
+    def _yt_dlp_opts(self, output_template: str, *, for_tiktok: bool = False) -> dict:
+        # TikTok rarely exposes separate video+audio streams matching our strict presets
+        # → "Requested format is not available". Use flexible format for TikTok.
+        if for_tiktok:
+            fmt = "best/mp4/bestvideo+bestaudio/bestvideo/bestaudio"
+        else:
+            fmt = FORMAT_PRESETS[self.quality]
+
+        opts: dict = {
             "quiet": True,
             "no_warnings": True,
+            "noprogress": True,
             "outtmpl": output_template,
-            "format": FORMAT_PRESETS[self.quality],
-            "format_sort": ["res", "fps", "codec:h264", "size", "br"],
+            "format": fmt,
             "merge_output_format": "mp4",
             "writethumbnail": False,
             "writeinfojson": False,
@@ -156,6 +163,15 @@ class VideoDownloader:
                 "Referer": "https://www.tiktok.com/",
             },
         }
+        if not for_tiktok:
+            opts["format_sort"] = ["res", "fps", "codec:h264", "size", "br"]
+        # curl_cffi chrome impersonation (requires yt-dlp[curl-cffi])
+        try:
+            import curl_cffi  # noqa: F401
+
+            opts["impersonate"] = "chrome"
+        except ImportError:
+            pass
         if self.cookies_file and Path(self.cookies_file).exists():
             opts["cookiefile"] = self.cookies_file
         return opts
@@ -206,12 +222,26 @@ class VideoDownloader:
 
     def _download_via_ytdlp(self, video: Video, target_dir: Path) -> Path:
         output_template = str(target_dir / f"{video.platform_video_id}.%(ext)s")
-        with yt_dlp.YoutubeDL(self._yt_dlp_opts(output_template)) as ydl:
+        for_tiktok = (video.platform or "").lower() == "tiktok" or "tiktok.com" in (
+            video.url or ""
+        )
+        opts = self._yt_dlp_opts(output_template, for_tiktok=for_tiktok)
+        with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(video.url, download=True)
 
         ext = (info or {}).get("ext", "mp4")
         vcodec = (info or {}).get("vcodec")
         file_path = target_dir / f"{video.platform_video_id}.{ext}"
+
+        # yt-dlp may write merged name without expected ext — scan target_dir
+        if not file_path.exists():
+            matches = sorted(
+                target_dir.glob(f"{video.platform_video_id}.*"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if matches:
+                file_path = matches[0]
 
         if vcodec == "none" or not self._is_video_file(file_path):
             file_path.unlink(missing_ok=True)

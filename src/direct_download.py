@@ -122,13 +122,27 @@ def resolve_direct_download_sources(
 
 
 def _ytdlp_url(page_url: str, quality: str, cookies_file: Optional[str]) -> str:
+    is_tt = "tiktok.com" in (page_url or "")
+    # Strict presets break TikTok ("Requested format is not available")
+    fmt = (
+        "best/mp4/bestvideo+bestaudio/bestvideo/bestaudio"
+        if is_tt
+        else FORMAT_PRESETS.get(quality, FORMAT_PRESETS["best"])
+    )
     opts: dict = {
         "quiet": True,
         "no_warnings": True,
-        "format": FORMAT_PRESETS[quality],
+        "noprogress": True,
+        "format": fmt,
         "skip_download": True,
         "http_headers": {"User-Agent": BROWSER_UA, "Referer": "https://www.tiktok.com/"},
     }
+    try:
+        import curl_cffi  # noqa: F401
+
+        opts["impersonate"] = "chrome"
+    except ImportError:
+        pass
     if cookies_file:
         opts["cookiefile"] = cookies_file
 
@@ -136,14 +150,16 @@ def _ytdlp_url(page_url: str, quality: str, cookies_file: Optional[str]) -> str:
         info = ydl.extract_info(page_url, download=False)
 
     if not info:
-        raise ValueError("Gagal mengambil URL video")
+        raise ValueError("Gagal mengambil URL video (yt-dlp)")
 
     url = info.get("url")
     if not url and info.get("formats"):
-        for fmt in reversed(info["formats"]):
-            if fmt.get("vcodec") and fmt.get("vcodec") != "none" and fmt.get("url"):
-                url = fmt["url"]
+        for fmt_row in reversed(info["formats"]):
+            if fmt_row.get("vcodec") and fmt_row.get("vcodec") != "none" and fmt_row.get("url"):
+                url = fmt_row["url"]
                 break
+            if fmt_row.get("url") and not url:
+                url = fmt_row["url"]
     if not url:
         raise ValueError("URL video tidak tersedia untuk download langsung")
     return url
