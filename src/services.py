@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from datetime import datetime, time
 from pathlib import Path
 
@@ -18,16 +19,25 @@ from .scrapers.shopee import ShopeeScraper
 from .scrapers.tiktok import TikTokScraper
 
 
-def get_scraper(platform: str, cookies_file: str | None = None):
+def get_scraper(
+    platform: str,
+    cookies_file: str | None = None,
+    *,
+    platform_user_id: str | None = None,
+):
+    if platform == "tiktok":
+        return TikTokScraper(cookies_file=cookies_file, platform_user_id=platform_user_id)
     scrapers = {
-        "tiktok": TikTokScraper,
         "instagram": InstagramScraper,
         "kuaishou": KuaishouScraper,
         "rednote": RedNoteScraper,
         "shopee": ShopeeScraper,
     }
     if platform not in scrapers:
-        raise ValueError(f"Platform tidak didukung: {platform}. Gunakan: tiktok, instagram, kuaishou, rednote, shopee")
+        raise ValueError(
+            f"Platform tidak didukung: {platform}. "
+            "Gunakan: tiktok, instagram, kuaishou, rednote, shopee"
+        )
     return scrapers[platform](cookies_file=cookies_file)
 
 
@@ -62,7 +72,48 @@ def sync_profile_videos(
 ) -> dict:
     if user_id is None:
         raise ValueError("user_id wajib untuk scan profil")
-    scraper = get_scraper(platform, cookies_file)
+    username_norm = username
+    profile = None
+    # Preload profile early for TikTok platform_user_id
+    if platform == "tiktok":
+        from .scrapers.parse import parse_tiktok_username
+        from .scrapers.tiktok_ids import resolve_tiktok_platform_user_id
+
+        username_norm = parse_tiktok_username(username)
+        profile = (
+            session.query(Profile)
+            .filter_by(user_id=user_id, platform=platform, username=username_norm)
+            .first()
+        )
+        sample_url = None
+        if profile:
+            sample = (
+                session.query(Video)
+                .filter_by(profile_id=profile.id)
+                .order_by(Video.id.desc())
+                .first()
+            )
+            if sample and sample.url:
+                sample_url = sample.url
+        # Resolve / refresh numeric channel id when missing
+        if not (profile and profile.platform_user_id):
+            resolved = resolve_tiktok_platform_user_id(
+                username=username_norm,
+                sample_video_url=sample_url,
+                cookies_file=cookies_file,
+            )
+            if resolved and profile:
+                profile.platform_user_id = resolved
+                session.commit()
+            platform_user_id = resolved or (profile.platform_user_id if profile else None)
+        else:
+            platform_user_id = profile.platform_user_id
+        scraper = get_scraper(
+            platform, cookies_file, platform_user_id=platform_user_id
+        )
+    else:
+        scraper = get_scraper(platform, cookies_file)
+
     username = scraper.normalize_username(username)
     profile = (
         session.query(Profile)
@@ -81,6 +132,19 @@ def sync_profile_videos(
     profile_url, discovered = scraper.scan_profile(username, known_video_ids=known_ids)
     profile = get_or_create_profile(session, platform, username, profile_url, user_id)
 
+    # After first videos exist, backfill platform_user_id from a video URL
+    if platform == "tiktok" and not profile.platform_user_id and discovered:
+        from .scrapers.tiktok_ids import resolve_tiktok_platform_user_id
+
+        sample = discovered[0].url
+        resolved = resolve_tiktok_platform_user_id(
+            username=username,
+            sample_video_url=sample,
+            cookies_file=cookies_file,
+        )
+        if resolved:
+            profile.platform_user_id = resolved
+
     new_count = 0
     updated_count = 0
     incremental = bool(known_ids)
@@ -88,12 +152,22 @@ def sync_profile_videos(
     for info in discovered:
         if info.platform_video_id in existing:
             # Rescan: video sudah di DB — jangan tarik/update lagi.
+            # But fix broken relative URLs on existing rows once
+            old = existing[info.platform_video_id]
+            if old.url and "://" not in old.url and info.url and "://" in info.url:
+                old.url = info.url
+                updated_count += 1
             continue
+
+        # Ensure absolute TikTok video URL for downloads
+        url = info.url
+        if platform == "tiktok" and url and "://" not in url:
+            url = f"https://www.tiktok.com/@{username}/video/{info.platform_video_id}"
 
         video = Video(
             profile_id=profile.id,
             platform_video_id=info.platform_video_id,
-            url=info.url,
+            url=url,
             title=info.title,
             description=info.description,
             views=info.views,
@@ -121,6 +195,7 @@ def sync_profile_videos(
         "downloaded": downloaded,
         "pending": pending,
         "incremental": incremental,
+        "platform_user_id": getattr(profile, "platform_user_id", None),
     }
 
 
@@ -441,6 +516,7 @@ def profile_to_dict(profile: Profile, stats: dict | None = None) -> dict:
         "platform": profile.platform,
         "username": profile.username,
         "url": profile.url,
+        "platform_user_id": getattr(profile, "platform_user_id", None),
         "video_count": profile.video_count,
         "last_scanned_at": profile.last_scanned_at.isoformat() if profile.last_scanned_at else None,
         "created_at": profile.created_at.isoformat() if profile.created_at else None,
@@ -469,6 +545,16 @@ def video_to_dict(video: Video) -> dict:
     has_server_file = bool(
         video.file_path and Path(video.file_path).exists() and Path(video.file_path).stat().st_size > 0
     )
+    affiliate_products: list = []
+    raw_products = getattr(video, "affiliate_products_json", None)
+    if raw_products:
+        try:
+            parsed = json.loads(raw_products)
+            if isinstance(parsed, list):
+                affiliate_products = parsed
+        except (json.JSONDecodeError, TypeError):
+            affiliate_products = []
+
     return {
         "id": video.id,
         "platform_video_id": video.platform_video_id,
@@ -491,6 +577,15 @@ def video_to_dict(video: Video) -> dict:
         "youtube_video_id": video.youtube_video_id,
         "youtube_url": video.youtube_url,
         "youtube_uploaded_at": video.youtube_uploaded_at.isoformat() if video.youtube_uploaded_at else None,
+        "affiliate_products": affiliate_products,
+        "affiliate_product_count": len(affiliate_products),
+        "affiliate_scan_status": getattr(video, "affiliate_scan_status", None),
+        "affiliate_scan_at": (
+            video.affiliate_scan_at.isoformat()
+            if getattr(video, "affiliate_scan_at", None)
+            else None
+        ),
+        "affiliate_scan_note": getattr(video, "affiliate_scan_note", None),
         "youtube_uploads": [
             {
                 "channel_id": u.youtube_channel_id,

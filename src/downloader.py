@@ -259,6 +259,17 @@ class VideoDownloader:
     ) -> Path:
         target_dir.mkdir(parents=True, exist_ok=True)
         if platform == "tiktok":
+            # Ensure absolute video URL (DB may store bare id from old scans)
+            if video.url and "://" not in video.url:
+                handle = username.lstrip("@")
+                video.url = (
+                    f"https://www.tiktok.com/@{handle}/video/{video.platform_video_id}"
+                )
+            elif video.platform_video_id and "/video/" not in (video.url or ""):
+                handle = username.lstrip("@")
+                video.url = (
+                    f"https://www.tiktok.com/@{handle}/video/{video.platform_video_id}"
+                )
             return self._download_tiktok(video, target_dir)
         if platform == "kuaishou":
             return self._download_kuaishou(video, target_dir, username)

@@ -70,6 +70,8 @@ class Profile(Base):
     platform: Mapped[str] = mapped_column(String(20), nullable=False)  # tiktok | instagram | kuaishou | rednote
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[str] = mapped_column(String(512), nullable=False)
+    # TikTok: numeric user id (preferred for yt-dlp tiktokuser:ID) or secUid
+    platform_user_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
     video_count: Mapped[int] = mapped_column(Integer, default=0)
     last_scanned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -106,6 +108,11 @@ class Video(Base):
     youtube_video_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     youtube_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     youtube_uploaded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Vision AI product scan for affiliate tagging (local downloaded files)
+    affiliate_products_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    affiliate_scan_status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # none|running|done|error
+    affiliate_scan_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    affiliate_scan_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -466,6 +473,49 @@ class MonitoringPlatformConfig(Base):
     )
 
 
+class YouTubeBrandScan(Base):
+    """YouTube Video Brand Scan job — affiliate product tagging."""
+
+    __tablename__ = "youtube_brand_scans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    video_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    youtube_video_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    video_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    channel_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    transcript_lang: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    has_transcript: Mapped[bool] = mapped_column(Boolean, default=False)
+    extraction_method: Mapped[str] = mapped_column(String(16), default="heuristic")
+    mention_count: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="done")
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    mentions: Mapped[List["YouTubeBrandMention"]] = relationship(
+        "YouTubeBrandMention", back_populates="scan", cascade="all, delete-orphan"
+    )
+
+
+class YouTubeBrandMention(Base):
+    """Detected product/brand noun from a YouTube brand scan."""
+
+    __tablename__ = "youtube_brand_mentions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scan_id: Mapped[int] = mapped_column(ForeignKey("youtube_brand_scans.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    mention_type: Mapped[str] = mapped_column(String(16), default="product")
+    category: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    context_snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    scan: Mapped["YouTubeBrandScan"] = relationship("YouTubeBrandScan", back_populates="mentions")
+
+
 class TikTokShopConfig(Base):
     """TikTok Shop Partner API credentials (single row)."""
 
@@ -508,6 +558,10 @@ def _migrate_schema(engine) -> None:
             "youtube_video_id": "VARCHAR(64)",
             "youtube_url": "VARCHAR(512)",
             "youtube_uploaded_at": "DATETIME",
+            "affiliate_products_json": "TEXT",
+            "affiliate_scan_status": "VARCHAR(16)",
+            "affiliate_scan_at": "DATETIME",
+            "affiliate_scan_note": "TEXT",
         }
         with engine.begin() as conn:
             for name, col_type in additions.items():
@@ -522,6 +576,20 @@ def _migrate_schema(engine) -> None:
     _migrate_profile_folders(engine, tables)
     _migrate_users_tables(engine, tables)
     _migrate_monitoring_tables(engine, tables)
+    _migrate_video_affiliate_tables(engine, tables)
+
+
+def _migrate_video_affiliate_tables(engine, tables: set[str]) -> None:
+    needed = {"youtube_brand_scans", "youtube_brand_mentions"}
+    if needed.issubset(tables):
+        return
+    Base.metadata.create_all(
+        engine,
+        tables=[
+            YouTubeBrandScan.__table__,
+            YouTubeBrandMention.__table__,
+        ],
+    )
 
 
 def _migrate_oauth_app_columns(engine, tables: set[str]) -> None:
@@ -777,6 +845,7 @@ def _migrate_users_tables(engine, tables: set[str]) -> None:
 
     _add_col("profiles", "user_id", "INTEGER")
     _add_col("profiles", "folder_id", "INTEGER")
+    _add_col("profiles", "platform_user_id", "VARCHAR(128)")
     _add_col("youtube_channels", "user_id", "INTEGER")
     _add_col("facebook_pages", "user_id", "INTEGER")
     _add_col("threads_accounts", "user_id", "INTEGER")

@@ -235,10 +235,19 @@ def validate_platform_cookies(cookies_dir: Path, platform: str) -> dict:
         message = f"Cookies {meta.label} OK" if ok else f"Cookies {meta.label} kosong"
 
     updated_at = None
+    age_days = None
     try:
-        updated_at = datetime.utcfromtimestamp(path.stat().st_mtime).isoformat() + "Z"
+        mtime = path.stat().st_mtime
+        updated_at = datetime.utcfromtimestamp(mtime).isoformat() + "Z"
+        age_days = max(0, int((datetime.utcnow().timestamp() - mtime) / 86400))
     except OSError:
         pass
+
+    if ok and age_days is not None and age_days >= 7 and meta.id == "tiktok":
+        message = (
+            f"{message} — file cookies sudah {age_days} hari. "
+            "Kalau download 403, re-export cookies dari browser (login tiktok.com)."
+        )
 
     result = {
         "platform": meta.id,
@@ -250,6 +259,7 @@ def validate_platform_cookies(cookies_dir: Path, platform: str) -> dict:
         "export_site": meta.export_site,
         "hint": meta.hint,
         "updated_at": updated_at,
+        "age_days": age_days,
         "path": str(path),
     }
     if guest is not None:
