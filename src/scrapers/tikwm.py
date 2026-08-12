@@ -38,36 +38,89 @@ def _cdn_headers(referer: str = "https://www.tiktok.com/") -> dict:
     return h
 
 
-def get_tiktok_video_url(page_url: str, quality: str = "best") -> dict:
-    """
-    Return dict with download_url, candidates[], title, size, is_hd.
-    quality: best | 1080 | 720
-    """
-    params = urllib.parse.urlencode({"url": page_url, "hd": "1"})
-    last_err: Exception | None = None
-    payload = None
+def _tikwm_headers() -> dict:
+    return {
+        "User-Agent": BROWSER_UA,
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.tikwm.com/",
+        "Origin": "https://www.tikwm.com",
+    }
 
+
+def _fetch_tikwm_payload(page_url: str) -> dict:
+    """
+    Call TikWM API. Prefer curl_cffi (bypasses Cloudflare 403 on Railway/datacenter IPs).
+    Falls back to urllib.
+    """
+    # Normalize: bare aweme id still works on TikWM
+    query_url = (page_url or "").strip()
+    if query_url.isdigit():
+        query_url = f"https://www.tiktok.com/video/{query_url}"
+
+    params = {"url": query_url, "hd": "1"}
+    last_err: Exception | None = None
+
+    # 1) curl_cffi — critical on cloud hosts where plain urllib gets CF 403
+    try:
+        from curl_cffi import requests as creq
+
+        for base in TIKWM_API_MIRRORS:
+            for method in ("get", "post"):
+                try:
+                    if method == "get":
+                        r = creq.get(
+                            base,
+                            params=params,
+                            headers=_tikwm_headers(),
+                            impersonate="chrome131",
+                            timeout=45,
+                            allow_redirects=True,
+                        )
+                    else:
+                        r = creq.post(
+                            base,
+                            data=params,
+                            headers=_tikwm_headers(),
+                            impersonate="chrome131",
+                            timeout=45,
+                            allow_redirects=True,
+                        )
+                    if r.status_code in (401, 403):
+                        last_err = ValueError(f"TikWM API error HTTP {r.status_code}")
+                        continue
+                    if r.status_code >= 400:
+                        last_err = ValueError(f"TikWM API error HTTP {r.status_code}")
+                        continue
+                    payload = r.json()
+                    if isinstance(payload, dict):
+                        return payload
+                except Exception as e:
+                    last_err = ValueError(f"TikWM API gagal: {e}")
+                    continue
+    except ImportError:
+        pass
+
+    # 2) urllib fallback (works on residential IPs)
+    qs = urllib.parse.urlencode(params)
     for base in TIKWM_API_MIRRORS:
-        req = urllib.request.Request(
-            f"{base}?{params}",
-            headers={
-                "User-Agent": BROWSER_UA,
-                "Accept": "application/json, text/plain, */*",
-                "Referer": "https://www.tikwm.com/",
-                "Origin": "https://www.tikwm.com",
-            },
-        )
+        req = urllib.request.Request(f"{base}?{qs}", headers=_tikwm_headers())
         try:
             with urllib.request.urlopen(req, timeout=45) as resp:
-                payload = json.loads(resp.read().decode())
-            break
+                return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             last_err = ValueError(f"TikWM API error HTTP {e.code}")
         except Exception as e:
             last_err = ValueError(f"TikWM API gagal: {e}")
 
-    if payload is None:
-        raise last_err or ValueError("TikWM API gagal")
+    raise last_err or ValueError("TikWM API gagal")
+
+
+def get_tiktok_video_url(page_url: str, quality: str = "best") -> dict:
+    """
+    Return dict with download_url, candidates[], title, size, is_hd.
+    quality: best | 1080 | 720
+    """
+    payload = _fetch_tikwm_payload(page_url)
 
     if payload.get("code") != 0:
         raise ValueError(payload.get("msg") or "Gagal ambil URL video dari TikTok (TikWM)")
@@ -84,8 +137,6 @@ def get_tiktok_video_url(page_url: str, quality: str = "best") -> dict:
         if u and isinstance(u, str) and u not in candidates:
             candidates.append(u)
 
-    # Some responses nest under data.play_addr / similar — ignore if not str
-
     if not candidates:
         raise ValueError("URL video tidak ditemukan di TikWM. Coba lagi nanti.")
 
@@ -100,6 +151,43 @@ def get_tiktok_video_url(page_url: str, quality: str = "best") -> dict:
         "is_hd": is_hd,
         "duration": data.get("duration"),
     }
+
+
+def get_ssstik_video_urls(page_url: str) -> list[str]:
+    """Secondary free extractor when TikWM is blocked (best-effort)."""
+    try:
+        from curl_cffi import requests as creq
+    except ImportError:
+        return []
+
+    try:
+        r = creq.post(
+            "https://ssstik.io/abc?url=dl",
+            data={"id": page_url, "locale": "en", "tt": "0"},
+            headers={
+                "User-Agent": BROWSER_UA,
+                "Origin": "https://ssstik.io",
+                "Referer": "https://ssstik.io/",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            },
+            impersonate="chrome131",
+            timeout=45,
+        )
+        if r.status_code >= 400:
+            return []
+        html = r.text or ""
+    except Exception:
+        return []
+
+    import re
+
+    urls: list[str] = []
+    for m in re.findall(r'href="(https?://[^"]+)"', html):
+        low = m.lower()
+        if any(x in low for x in ("tikcdn", "tiktokcdn", "ssscdn", "/ssstik/", "play")):
+            if m not in urls:
+                urls.append(m)
+    return urls
 
 
 def _read_body(url: str, referer: str) -> bytes:

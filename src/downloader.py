@@ -99,12 +99,16 @@ class VideoDownloader:
         return _unique_file_path(target_dir, stem)
 
     def _download_tiktok(self, video: Video, target_dir: Path) -> Path:
+        from .scrapers.tikwm import get_ssstik_video_urls
+        from .ytdlp_util import format_ytdlp_error
+
         file_path = self._tiktok_download_path(video, target_dir)
         last_err: Exception | None = None
+        page_url = video.url or ""
 
         # 1) TikWM CDN URLs (HD → play → wm) with multi-referer on 403
         try:
-            meta = get_tiktok_video_url(video.url, self.quality)
+            meta = get_tiktok_video_url(page_url, self.quality)
             file_path = self._tiktok_download_path(video, target_dir, meta.get("title"))
             download_file(
                 meta["download_url"],
@@ -121,16 +125,33 @@ class VideoDownloader:
             last_err = e
             file_path.unlink(missing_ok=True)
 
-        # 2) Fallback yt-dlp (cookies help when TikTok blocks CDN)
+        # 2) ssstik / tikcdn
         try:
-            ytdlp_path = self._download_via_ytdlp(video, target_dir)
-            if self._is_video_file(ytdlp_path):
-                return ytdlp_path
-            ytdlp_path.unlink(missing_ok=True)
+            alts = get_ssstik_video_urls(page_url)
+            if alts:
+                file_path = self._tiktok_download_path(video, target_dir)
+                download_file(alts[0], str(file_path), candidates=alts)
+                if self._is_video_file(file_path):
+                    return file_path
+                file_path.unlink(missing_ok=True)
         except Exception as e:
             last_err = e
+            file_path.unlink(missing_ok=True)
 
-        from .ytdlp_util import format_ytdlp_error
+        # 3) yt-dlp — without cookies first (cookies often break rehydration)
+        saved_cookies = self.cookies_file
+        for use_cookies in (False, True):
+            try:
+                self.cookies_file = saved_cookies if use_cookies else None
+                ytdlp_path = self._download_via_ytdlp(video, target_dir)
+                if self._is_video_file(ytdlp_path):
+                    self.cookies_file = saved_cookies
+                    return ytdlp_path
+                ytdlp_path.unlink(missing_ok=True)
+            except Exception as e:
+                last_err = e
+            finally:
+                self.cookies_file = saved_cookies
 
         raise ValueError(
             f"Gagal download TikTok: {format_ytdlp_error(last_err)}. "

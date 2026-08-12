@@ -14,7 +14,12 @@ from .downloader import FORMAT_PRESETS, _sanitize_filename_stem
 from .scrapers.kuaishou_api import resolve_kuaishou_download_url
 from .scrapers.rednote_api import resolve_rednote_download_url
 from .scrapers.shopee_api import resolve_shopee_download_url
-from .scrapers.tikwm import BROWSER_UA, get_tiktok_video_url, open_cdn_stream
+from .scrapers.tikwm import (
+    BROWSER_UA,
+    get_ssstik_video_urls,
+    get_tiktok_video_url,
+    open_cdn_stream,
+)
 
 
 def direct_download_filename(video: Video) -> str:
@@ -101,6 +106,10 @@ def resolve_direct_download_sources(
             video.url = page_url
         if not page_url:
             raise ValueError("URL video TikTok kosong — scan ulang profil")
+
+        from .ytdlp_util import format_ytdlp_error
+
+        # 1) TikWM (curl_cffi — works better on Railway than plain HTTP)
         try:
             meta = get_tiktok_video_url(page_url, q)
             candidates = list(meta.get("candidates") or [])
@@ -110,21 +119,34 @@ def resolve_direct_download_sources(
                 return candidates
             errors.append("TikWM: no candidates")
         except Exception as e:
-            from .ytdlp_util import format_ytdlp_error
-
             errors.append(f"TikWM: {format_ytdlp_error(e)}")
-        # Fallback: yt-dlp direct URL
-        try:
-            return [_ytdlp_url(page_url, q, cookies_file)]
-        except Exception as e:
-            from .ytdlp_util import format_ytdlp_error
 
-            errors.append(f"yt-dlp: {format_ytdlp_error(e)}")
-            raise ValueError(
-                "Gagal mengambil video: "
-                + "; ".join(errors)
-                + ". Upload cookies TikTok di Settings, atau coba lagi."
-            ) from e
+        # 2) ssstik / tikcdn mirror
+        try:
+            alt = get_ssstik_video_urls(page_url)
+            if alt:
+                return alt
+            errors.append("ssstik: no candidates")
+        except Exception as e:
+            errors.append(f"ssstik: {format_ytdlp_error(e)}")
+
+        # 3) yt-dlp — try WITHOUT cookies first (stale session cookies break rehydration),
+        #    then with cookies as last resort
+        ytdlp_attempts: list[Optional[str]] = [None]
+        if cookies_file:
+            ytdlp_attempts.append(cookies_file)
+        for cookie_path in ytdlp_attempts:
+            try:
+                return [_ytdlp_url(page_url, q, cookie_path)]
+            except Exception as e:
+                label = "no-cookies" if not cookie_path else "with-cookies"
+                errors.append(f"yt-dlp({label}): {format_ytdlp_error(e)}")
+
+        raise ValueError(
+            "Gagal mengambil video: "
+            + "; ".join(errors)
+            + ". Upload cookies TikTok di Settings, atau coba lagi."
+        )
 
     if platform == "kuaishou":
         if not principal_id:
@@ -163,7 +185,7 @@ def resolve_direct_download_sources(
 
 
 def _ytdlp_url(page_url: str, quality: str, cookies_file: Optional[str]) -> str:
-    is_tt = "tiktok.com" in (page_url or "")
+    is_tt = "tiktok.com" in (page_url or "") or "tiktok.com" in (page_url or "").lower()
     # Strict presets break TikTok ("Requested format is not available")
     fmt = (
         "best/mp4/bestvideo+bestaudio/bestvideo/bestaudio"
@@ -179,6 +201,9 @@ def _ytdlp_url(page_url: str, quality: str, cookies_file: Optional[str]) -> str:
         "format": fmt,
         "skip_download": True,
         "http_headers": {"User-Agent": BROWSER_UA, "Referer": "https://www.tiktok.com/"},
+        # Avoid stuck retries on blocked TikTok HTML
+        "socket_timeout": 30,
+        "retries": 2,
     }
     apply_chrome_impersonate(opts)
     if cookies_file:
@@ -192,12 +217,18 @@ def _ytdlp_url(page_url: str, quality: str, cookies_file: Optional[str]) -> str:
 
     url = info.get("url")
     if not url and info.get("formats"):
-        for fmt_row in reversed(info["formats"]):
-            if fmt_row.get("vcodec") and fmt_row.get("vcodec") != "none" and fmt_row.get("url"):
-                url = fmt_row["url"]
-                break
-            if fmt_row.get("url") and not url:
-                url = fmt_row["url"]
+        # Prefer progressive mp4 / video formats with a real URL
+        ranked = sorted(
+            [f for f in info["formats"] if f.get("url")],
+            key=lambda f: (
+                0 if (f.get("vcodec") and f.get("vcodec") != "none") else 1,
+                0 if (f.get("ext") == "mp4") else 1,
+                -(f.get("height") or 0),
+                -(f.get("tbr") or 0),
+            ),
+        )
+        if ranked:
+            url = ranked[0]["url"]
     if not url:
         raise ValueError("URL video tidak tersedia untuk download langsung")
     return url

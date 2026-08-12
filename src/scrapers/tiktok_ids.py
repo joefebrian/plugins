@@ -23,27 +23,12 @@ def extract_author_ids_from_tikwm(page_or_video_url: str) -> dict[str, str | Non
     Use TikWM video/profile helper to resolve author ids.
     Prefer numeric id for yt-dlp `tiktokuser:ID`.
     """
-    params = urllib.parse.urlencode({"url": page_or_video_url, "hd": "1"})
-    last_err: Exception | None = None
-    payload = None
-    for base in TIKWM_API_MIRRORS:
-        req = urllib.request.Request(
-            f"{base}?{params}",
-            headers={
-                "User-Agent": BROWSER_UA,
-                "Accept": "application/json",
-                "Referer": "https://www.tikwm.com/",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=45) as resp:
-                payload = json.loads(resp.read().decode())
-            break
-        except Exception as e:
-            last_err = e
-            continue
-    if not payload:
-        raise ValueError(f"TikWM gagal resolve user id: {last_err}")
+    from .tikwm import _fetch_tikwm_payload
+
+    try:
+        payload = _fetch_tikwm_payload(page_or_video_url)
+    except Exception as e:
+        raise ValueError(f"TikWM gagal resolve user id: {e}") from e
 
     if payload.get("code") != 0:
         raise ValueError(payload.get("msg") or "TikWM tidak mengembalikan author")
