@@ -1,5 +1,6 @@
 """Database models for affiliate video tracking."""
 
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -14,7 +15,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    event,
 )
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 
@@ -541,9 +544,54 @@ class TikTokShopConfig(Base):
     )
 
 
+_engine_lock = threading.RLock()
+_engines: dict[str, Engine] = {}
+_session_factories: dict[str, sessionmaker] = {}
+_migrated: set[str] = set()
+
+
+def _db_key(db_path: Path) -> str:
+    path = Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return str(path.resolve())
+
+
+def reset_engine_cache() -> None:
+    """Dispose cached engines. Tests only."""
+    with _engine_lock:
+        for engine in _engines.values():
+            engine.dispose()
+        _engines.clear()
+        _session_factories.clear()
+        _migrated.clear()
+
+
 def get_engine(db_path: Path):
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    return create_engine(f"sqlite:///{db_path}", echo=False)
+    key = _db_key(db_path)
+    with _engine_lock:
+        cached = _engines.get(key)
+        if cached is not None:
+            return cached
+
+        engine = create_engine(
+            f"sqlite:///{key}",
+            echo=False,
+            connect_args={"check_same_thread": False, "timeout": 30},
+        )
+
+        @event.listens_for(engine, "connect")
+        def _on_connect(dbapi_conn, _connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.execute("PRAGMA cache_size=-20000")
+            cursor.execute("PRAGMA temp_store=MEMORY")
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        _engines[key] = engine
+        return engine
 
 
 def _migrate_schema(engine) -> None:
@@ -938,6 +986,13 @@ def run_migrations(db_path: Path) -> None:
 
 
 def init_db(db_path: Path):
-    run_migrations(db_path)
-    engine = get_engine(db_path)
-    return sessionmaker(bind=engine)()
+    key = _db_key(db_path)
+    with _engine_lock:
+        if key not in _migrated:
+            run_migrations(db_path)
+            _migrated.add(key)
+        factory = _session_factories.get(key)
+        if factory is None:
+            factory = sessionmaker(bind=get_engine(db_path))
+            _session_factories[key] = factory
+    return factory()

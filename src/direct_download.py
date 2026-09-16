@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import threading
 import urllib.request
+from pathlib import Path
 from typing import Generator, Optional
 from urllib.parse import quote
 
@@ -20,6 +22,24 @@ from .scrapers.tikwm import (
     get_tiktok_video_url,
     open_cdn_stream,
 )
+
+
+# Cap parallel TikTok→browser proxies so they don't starve dashboard threads.
+REMOTE_DOWNLOAD_SLOTS = threading.BoundedSemaphore(4)
+
+
+def existing_local_video_path(video: Video) -> Optional[Path]:
+    """Return a readable local file if the server already saved this video."""
+    raw = getattr(video, "file_path", None)
+    if not raw:
+        return None
+    path = Path(raw)
+    try:
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+    except OSError:
+        return None
+    return None
 
 
 def direct_download_filename(video: Video) -> str:

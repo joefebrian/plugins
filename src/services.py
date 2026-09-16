@@ -8,7 +8,8 @@ import json
 from datetime import datetime, time
 from pathlib import Path
 
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func
+from sqlalchemy.orm import Session, noload, selectinload
 
 from .db.models import Profile, Video, VideoFacebookUpload, VideoThreadsPost, VideoYouTubeUpload
 from .downloader import VideoDownloader
@@ -252,7 +253,15 @@ def list_videos(
     if not profile:
         return []
 
-    query = session.query(Video).filter_by(profile_id=profile.id)
+    query = (
+        session.query(Video)
+        .options(
+            selectinload(Video.youtube_uploads).selectinload(VideoYouTubeUpload.youtube_channel),
+            selectinload(Video.facebook_uploads).selectinload(VideoFacebookUpload.facebook_page),
+            noload(Video.threads_uploads),
+        )
+        .filter_by(profile_id=profile.id)
+    )
 
     if status == "downloaded":
         query = query.filter_by(is_downloaded=True)
@@ -487,26 +496,63 @@ def get_profile(session: Session, profile_id: int, user_id: int | None = None) -
     return q.first()
 
 
+def get_profiles_stats(session: Session, profiles: list[Profile]) -> dict[int, dict]:
+    """One GROUP BY query for sidebar stats instead of loading every video row."""
+    if not profiles:
+        return {}
+
+    ids = [p.id for p in profiles]
+    downloaded_col = func.coalesce(func.sum(case((Video.is_downloaded.is_(True), 1), else_=0)), 0)
+    with_gmv_col = func.coalesce(func.sum(case((Video.gmv > 0, 1), else_=0)), 0)
+    rows = (
+        session.query(
+            Video.profile_id,
+            func.count(Video.id).label("total"),
+            downloaded_col.label("downloaded"),
+            func.coalesce(func.sum(Video.gmv), 0).label("total_gmv"),
+            func.coalesce(func.sum(Video.commission), 0).label("total_commission"),
+            with_gmv_col.label("with_gmv"),
+        )
+        .filter(Video.profile_id.in_(ids))
+        .group_by(Video.profile_id)
+        .all()
+    )
+    by_id: dict[int, dict] = {}
+    for row in rows:
+        total = int(row.total or 0)
+        downloaded = int(row.downloaded or 0)
+        by_id[row.profile_id] = {
+            "total": total,
+            "downloaded": downloaded,
+            "pending": total - downloaded,
+            "total_gmv": float(row.total_gmv or 0),
+            "total_commission": float(row.total_commission or 0),
+            "with_gmv": int(row.with_gmv or 0),
+        }
+
+    out: dict[int, dict] = {}
+    for profile in profiles:
+        stats = by_id.get(
+            profile.id,
+            {
+                "total": 0,
+                "downloaded": 0,
+                "pending": 0,
+                "total_gmv": 0.0,
+                "total_commission": 0.0,
+                "with_gmv": 0,
+            },
+        ).copy()
+        stats["last_scanned_at"] = profile.last_scanned_at
+        out[profile.id] = stats
+    return out
+
+
 def get_profile_stats(session: Session, profile_id: int) -> dict:
     profile = get_profile(session, profile_id)
     if not profile:
         return {}
-
-    videos = session.query(Video).filter_by(profile_id=profile_id).all()
-    downloaded = sum(1 for v in videos if v.is_downloaded)
-    total_gmv = sum(v.gmv or 0 for v in videos)
-    total_commission = sum(v.commission or 0 for v in videos)
-    with_gmv = sum(1 for v in videos if v.gmv and v.gmv > 0)
-
-    return {
-        "total": len(videos),
-        "downloaded": downloaded,
-        "pending": len(videos) - downloaded,
-        "total_gmv": total_gmv,
-        "total_commission": total_commission,
-        "with_gmv": with_gmv,
-        "last_scanned_at": profile.last_scanned_at,
-    }
+    return get_profiles_stats(session, [profile])[profile.id]
 
 
 def profile_to_dict(profile: Profile, stats: dict | None = None) -> dict:
@@ -542,9 +588,7 @@ def mark_video_downloaded(session: Session, video: Video, *, file_path: str | No
 
 
 def video_to_dict(video: Video) -> dict:
-    has_server_file = bool(
-        video.file_path and Path(video.file_path).exists() and Path(video.file_path).stat().st_size > 0
-    )
+    has_server_file = bool(video.file_path)
     affiliate_products: list = []
     raw_products = getattr(video, "affiliate_products_json", None)
     if raw_products:

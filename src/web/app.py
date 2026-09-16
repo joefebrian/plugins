@@ -45,8 +45,10 @@ from ..gmv.tiktok_shop import (
 )
 from ..scrapers.rednote_api import rednote_cdn_referer
 from ..direct_download import (
+    REMOTE_DOWNLOAD_SLOTS,
     content_disposition_attachment,
     direct_download_filename,
+    existing_local_video_path,
     resolve_direct_download_sources,
     stream_remote_video,
 )
@@ -65,6 +67,7 @@ from ..services import (
     get_hero_videos,
     get_profile,
     get_profile_stats,
+    get_profiles_stats,
     get_scraper,
     list_profiles,
     list_videos,
@@ -592,11 +595,8 @@ def api_list_profiles(
     session: Session = Depends(get_session),
 ):
     profiles = list_profiles(session, user_id=user_id)
-    result = []
-    for p in profiles:
-        stats = get_profile_stats(session, p.id)
-        result.append(profile_to_dict(p, stats))
-    return result
+    stats_by_id = get_profiles_stats(session, profiles)
+    return [profile_to_dict(p, stats_by_id.get(p.id)) for p in profiles]
 
 
 @app.get("/api/profile-folders")
@@ -1637,6 +1637,19 @@ def api_direct_download_video(
     session: Session = Depends(get_session),
 ):
     video, profile = _get_owned_video(session, video_id, user_id)
+    filename = direct_download_filename(video)
+    headers = {
+        "Content-Disposition": content_disposition_attachment(filename),
+        "Cache-Control": "no-store",
+    }
+
+    local_path = existing_local_video_path(video)
+    if local_path:
+        if not video.is_downloaded:
+            mark_video_downloaded(session, video)
+        headers["Cache-Control"] = "private, max-age=3600"
+        return FileResponse(local_path, media_type="video/mp4", filename=filename, headers=headers)
+
     cookies_file = _cookies_path_for(profile.platform)
 
     from ..ytdlp_util import format_ytdlp_error
@@ -1647,7 +1660,6 @@ def api_direct_download_video(
             profile.platform,
             quality=quality,
             cookies_file=cookies_file,
-            # TikTok also needs username to rebuild absolute video URLs
             principal_id=profile.username
             if profile.platform in ("tiktok", "kuaishou", "rednote", "shopee")
             else None,
@@ -1663,7 +1675,6 @@ def api_direct_download_video(
         raise HTTPException(400, "Gagal mengambil video: tidak ada URL download")
 
     source_url = sources[0]
-    filename = direct_download_filename(video)
     referers = {
         "tiktok": "https://www.tiktok.com/",
         "instagram": "https://www.instagram.com/",
@@ -1678,8 +1689,9 @@ def api_direct_download_video(
     video_db_id = video.id
 
     def _stream_and_mark():
-        # Only mark after first successful bytes. Use a fresh session — request
-        # session is closed once StreamingResponse starts iterating.
+        acquired = REMOTE_DOWNLOAD_SLOTS.acquire(timeout=120)
+        if not acquired:
+            raise ValueError("Terlalu banyak download bersamaan. Coba lagi sebentar.")
         marked = False
         try:
             for chunk in stream_remote_video(
@@ -1705,11 +1717,9 @@ def api_direct_download_video(
                 f"Gagal mengambil video: {format_ytdlp_error(e)}. "
                 "Coba upload cookies TikTok di Settings, atau download ulang sebentar lagi."
             ) from e
+        finally:
+            REMOTE_DOWNLOAD_SLOTS.release()
 
-    headers = {
-        "Content-Disposition": content_disposition_attachment(filename),
-        "Cache-Control": "no-store",
-    }
     return StreamingResponse(
         _stream_and_mark(),
         media_type="video/mp4",
