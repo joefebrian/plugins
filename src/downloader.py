@@ -143,7 +143,7 @@ class VideoDownloader:
         for use_cookies in (False, True):
             try:
                 self.cookies_file = saved_cookies if use_cookies else None
-                ytdlp_path = self._download_via_ytdlp(video, target_dir)
+                ytdlp_path = self._download_via_ytdlp(video, target_dir, for_tiktok=True)
                 if self._is_video_file(ytdlp_path):
                     self.cookies_file = saved_cookies
                     return ytdlp_path
@@ -240,11 +240,17 @@ class VideoDownloader:
             raise ValueError("Download Kuaishou gagal — file bukan video valid")
         return file_path
 
-    def _download_via_ytdlp(self, video: Video, target_dir: Path) -> Path:
+    def _download_via_ytdlp(
+        self,
+        video: Video,
+        target_dir: Path,
+        *,
+        for_tiktok: bool | None = None,
+    ) -> Path:
         output_template = str(target_dir / f"{video.platform_video_id}.%(ext)s")
-        for_tiktok = (video.platform or "").lower() == "tiktok" or "tiktok.com" in (
-            video.url or ""
-        )
+        # Profile.platform, not Video — video.platform raises AttributeError.
+        if for_tiktok is None:
+            for_tiktok = "tiktok.com" in (video.url or "").lower()
         opts = self._yt_dlp_opts(output_template, for_tiktok=for_tiktok)
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(video.url, download=True)
