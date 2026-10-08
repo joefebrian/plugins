@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=20261009-stats" />
   <script>
     (function () {
       var saved = localStorage.getItem('av-theme');
@@ -33,7 +33,7 @@
       <nav class="sidebar-nav">
         <button type="button" class="nav-item active" id="nav-profiles" data-view="profiles">
           <span class="nav-icon"><i data-lucide="layout-dashboard"></i></span>
-          <span>Dashboard Profil</span>
+          <span>Dashboard</span>
         </button>
         <div class="nav-group open">
           <button class="nav-group-title" id="nav-multiupload-toggle" type="button">
@@ -131,9 +131,82 @@
         <button class="btn btn-primary" id="btn-scan-empty">Scan Profil Pertama</button>
       </div>
 
+      <div id="overview" class="overview hidden">
+        <header class="topbar">
+          <div>
+            <div class="platform-badge">Statistik</div>
+            <h2 id="overview-title">Dashboard</h2>
+            <p class="overview-lead" id="overview-lead">Semua profil tersimpan.</p>
+          </div>
+          <div class="topbar-actions">
+            <label class="overview-sort" for="overview-sort">
+              <span>Urutkan</span>
+              <select id="overview-sort">
+                <option value="gmv">GMV</option>
+                <option value="commission">Komisi</option>
+                <option value="videos">Video</option>
+                <option value="pending">Belum download</option>
+              </select>
+            </label>
+          </div>
+        </header>
+
+        <section class="stats-grid overview-stats">
+          <div class="stat-card">
+            <span class="stat-label">Profil</span>
+            <span class="stat-value" id="ov-profiles">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Total Video</span>
+            <span class="stat-value" id="ov-videos">0</span>
+          </div>
+          <div class="stat-card stat-green">
+            <span class="stat-label">Sudah Download</span>
+            <span class="stat-value" id="ov-downloaded">0</span>
+            <span class="stat-hint" id="ov-download-rate"></span>
+          </div>
+          <div class="stat-card stat-yellow">
+            <span class="stat-label">Belum Download</span>
+            <span class="stat-value" id="ov-pending">0</span>
+          </div>
+          <div class="stat-card stat-accent">
+            <span class="stat-label">Total GMV</span>
+            <span class="stat-value" id="ov-gmv">Rp 0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Total Komisi</span>
+            <span class="stat-value" id="ov-commission">Rp 0</span>
+            <span class="stat-hint" id="ov-with-gmv"></span>
+          </div>
+        </section>
+
+        <section class="panel overview-panel">
+          <div class="panel-header">
+            <h3>Per profil</h3>
+            <span class="badge" id="overview-count">0 profil</span>
+          </div>
+          <div class="table-wrap overview-table-wrap">
+            <table class="overview-table">
+              <thead>
+                <tr>
+                  <th>Profil</th>
+                  <th>Video</th>
+                  <th>Download</th>
+                  <th>GMV</th>
+                  <th>Komisi</th>
+                  <th>Scan</th>
+                </tr>
+              </thead>
+              <tbody id="overview-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
       <div id="dashboard" class="dashboard hidden">
         <header class="topbar">
           <div>
+            <button type="button" class="btn btn-ghost btn-sm overview-back" id="btn-back-overview">← Statistik</button>
             <div class="platform-badge" id="profile-platform">tiktok</div>
             <h2 id="profile-title">@username</h2>
             <a id="profile-link" href="#" target="_blank" rel="noopener">Buka profil</a>
@@ -1485,6 +1558,6 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
   </div>
 
   <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
-  <script src="/app.js?v=20261009-produk"></script>
+  <script src="/app.js?v=20261009-stats"></script>
 </body>
 </html>

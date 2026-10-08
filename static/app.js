@@ -2,6 +2,9 @@ const API = '/api';
 const THEME_KEY = 'av-theme';
 const SIDEBAR_KEY = 'av-sidebar-collapsed';
 let currentProfileId = null;
+let dashboardMode = 'overview';
+let cachedProfiles = [];
+let profilesLoaded = false;
 let pollTimer = null;
 let currentUser = null;
 let videoColumnSort = { field: null, dir: null };
@@ -81,6 +84,14 @@ function fmtDateShort(iso) {
   return new Date(iso).toLocaleDateString('id-ID', {
     day: 'numeric', month: 'short', year: 'numeric',
   });
+}
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function resolveVideoSortBy() {
@@ -248,7 +259,7 @@ function setFolderCollapsed(folderId, collapsed) {
 
 function buildProfileItemEl(p) {
   const el = document.createElement('div');
-  el.className = 'profile-item' + (p.id === currentProfileId ? ' active' : '');
+  el.className = 'profile-item' + (dashboardMode === 'profile' && p.id === currentProfileId ? ' active' : '');
   el.dataset.id = p.id;
   const icons = { tiktok: '🎵', instagram: '📸', kuaishou: '🎬', rednote: '📕', shopee: '🛒' };
   const icon = icons[p.platform] || '📱';
@@ -401,24 +412,144 @@ function renderProfileSidebar(profiles, folders) {
   }
 }
 
+function sumProfiles(profiles) {
+  return profiles.reduce((acc, p) => {
+    acc.videos += p.total || 0;
+    acc.downloaded += p.downloaded || 0;
+    acc.pending += p.pending || 0;
+    acc.gmv += p.total_gmv || 0;
+    acc.commission += p.total_commission || 0;
+    acc.withGmv += p.with_gmv || 0;
+    return acc;
+  }, { videos: 0, downloaded: 0, pending: 0, gmv: 0, commission: 0, withGmv: 0 });
+}
+
+function renderOverview() {
+  const profiles = cachedProfiles;
+  const totals = sumProfiles(profiles);
+  const rate = totals.videos ? Math.round((totals.downloaded / totals.videos) * 100) : 0;
+  const setText = (sel, value) => {
+    const el = $(sel);
+    if (el) el.textContent = value;
+  };
+  setText('#ov-profiles', fmtNum(profiles.length));
+  setText('#ov-videos', fmtNum(totals.videos));
+  setText('#ov-downloaded', fmtNum(totals.downloaded));
+  setText('#ov-pending', fmtNum(totals.pending));
+  setText('#ov-gmv', fmtMoney(totals.gmv));
+  setText('#ov-commission', fmtMoney(totals.commission));
+  setText('#ov-download-rate', totals.videos ? `${rate}% dari semua video` : '');
+  setText('#ov-with-gmv', totals.withGmv ? `${fmtNum(totals.withGmv)} video punya GMV` : '');
+  setText(
+    '#overview-lead',
+    `${profiles.length} profil tersimpan. Klik baris untuk buka video profil itu.`,
+  );
+  setText('#overview-count', `${profiles.length} profil`);
+
+  const sort = $('#overview-sort')?.value || 'gmv';
+  const valueOf = {
+    gmv: (p) => p.total_gmv || 0,
+    commission: (p) => p.total_commission || 0,
+    videos: (p) => p.total || 0,
+    pending: (p) => p.pending || 0,
+  }[sort] || ((p) => p.total_gmv || 0);
+  const ranked = [...profiles].sort((a, b) => valueOf(b) - valueOf(a));
+  const maxGmv = Math.max(1, ...ranked.map((p) => p.total_gmv || 0));
+  const icons = { tiktok: '🎵', instagram: '📸', kuaishou: '🎬', rednote: '📕', shopee: '🛒' };
+  const tbody = $('#overview-rows');
+  if (!tbody) return;
+  tbody.innerHTML = ranked.map((p) => {
+    const total = p.total || 0;
+    const downloaded = p.downloaded || 0;
+    const pct = total ? Math.round((downloaded / total) * 100) : 0;
+    const gmvShare = Math.round(((p.total_gmv || 0) / maxGmv) * 100);
+    const icon = icons[p.platform] || '📱';
+    const name = esc(p.username);
+    return `<tr class="overview-row" data-profile-id="${p.id}" tabindex="0" role="button" aria-label="Buka @${name}">
+      <td>
+        <div class="ov-name">${icon} @${name}</div>
+        <div class="ov-platform">${esc(p.platform || '')}</div>
+      </td>
+      <td>${fmtNum(total)}</td>
+      <td>
+        <div class="ov-bar" title="${downloaded} / ${total}">
+          <span class="ov-bar-fill" style="width:${pct}%"></span>
+        </div>
+        <div class="ov-bar-label">${pct}% · ${fmtNum(p.pending || 0)} pending</div>
+      </td>
+      <td>
+        <div class="money">${fmtMoney(p.total_gmv || 0)}</div>
+        <div class="ov-bar ov-bar-gmv" title="Pangsa GMV"><span class="ov-bar-fill" style="width:${gmvShare}%"></span></div>
+      </td>
+      <td class="money">${fmtMoney(p.total_commission || 0)}</td>
+      <td class="ov-scan">${fmtDateShort(p.last_scanned_at)}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('.overview-row').forEach((row) => {
+    const open = () => selectProfile(Number(row.dataset.profileId));
+    row.onclick = open;
+    row.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        open();
+      }
+    };
+  });
+}
+
+function showOverview() {
+  if (!profilesLoaded) return;
+  dashboardMode = 'overview';
+  if (!cachedProfiles.length) {
+    $('#empty-state')?.classList.remove('hidden');
+    $('#overview')?.classList.add('hidden');
+    $('#dashboard')?.classList.add('hidden');
+    $$('.profile-item').forEach((el) => el.classList.remove('active'));
+    return;
+  }
+  renderOverview();
+  $('#empty-state')?.classList.add('hidden');
+  $('#overview')?.classList.remove('hidden');
+  $('#dashboard')?.classList.add('hidden');
+  $$('.profile-item').forEach((el) => el.classList.remove('active'));
+}
+
 async function loadProfiles() {
   const [profiles, folders] = await Promise.all([
     api('/profiles'),
     api('/profile-folders'),
   ]);
+  cachedProfiles = profiles;
+  profilesLoaded = true;
+  if (!profiles.some((p) => p.id === currentProfileId)) {
+    currentProfileId = null;
+    if (dashboardMode === 'profile') dashboardMode = 'overview';
+  }
   renderProfileSidebar(profiles, folders);
 
   if (profiles.length === 0) {
+    dashboardMode = 'overview';
     $('#empty-state').classList.remove('hidden');
+    $('#overview').classList.add('hidden');
     $('#dashboard').classList.add('hidden');
-    currentProfileId = null;
-  } else {
-    const exists = profiles.some((p) => p.id === currentProfileId);
-    if (!currentProfileId || !exists) {
-      selectProfile(profiles[0].id);
-    }
+    return;
   }
+  if (dashboardMode === 'profile' && currentProfileId) {
+    $('#empty-state').classList.add('hidden');
+    $('#overview').classList.add('hidden');
+    $('#dashboard').classList.remove('hidden');
+    return;
+  }
+  showOverview();
 }
+
+$('#btn-back-overview')?.addEventListener('click', () => {
+  showOverview();
+  document.querySelector('.main')?.scrollTo(0, 0);
+});
+$('#overview-sort')?.addEventListener('change', () => {
+  if (dashboardMode === 'overview') renderOverview();
+});
 
 $('#btn-new-profile-folder')?.addEventListener('click', async () => {
   const name = prompt('Nama folder baru:');
@@ -444,11 +575,13 @@ document.addEventListener('click', (e) => {
 
 async function selectProfile(id) {
   currentProfileId = id;
+  dashboardMode = 'profile';
   $$('.profile-item').forEach((el) => {
     el.classList.toggle('active', Number(el.dataset.id) === id);
   });
 
   $('#empty-state').classList.add('hidden');
+  $('#overview').classList.add('hidden');
   $('#dashboard').classList.remove('hidden');
 
   const profile = await api(`/profiles/${id}`);
@@ -1045,7 +1178,10 @@ async function startScan(platform, username) {
     else if (s.incremental) msg += ': tidak ada video baru';
     if (s.total) msg += ` (${s.total} total di database)`;
     showToast(msg);
-    if (done.result.profile) currentProfileId = done.result.profile.id;
+    if (done.result.profile) {
+      currentProfileId = done.result.profile.id;
+      dashboardMode = 'profile';
+    }
     await loadProfiles();
     if (currentProfileId) await selectProfile(currentProfileId);
   });
@@ -1894,6 +2030,7 @@ function switchView(view, opts = {}) {
     const section = opts.affiliateSection || affiliateSection || 'brand-scan';
     loadVideoAffiliateHub(section);
   }
+  if (view === 'profiles') showOverview();
   if (view === 'monitoring') {
     const section = opts.monitoringSection || monitoringSection || 'oauth';
     const platform = opts.monitoringPlatform || monitoringPlatform || 'overview';
