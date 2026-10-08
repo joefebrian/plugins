@@ -60,6 +60,11 @@ FORMAT_PRESETS = {
         "bestvideo[height<=720][vcodec!=none]+bestaudio/"
         "best[height<=720][vcodec!=none]"
     ),
+    "360": (
+        "best[height<=360][vcodec!=none][ext=mp4]/"
+        "best[height<=480][vcodec!=none]/"
+        "worst[vcodec!=none]"
+    ),
 }
 
 

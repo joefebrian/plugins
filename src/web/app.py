@@ -135,6 +135,7 @@ from .routes.ai_settings import router as ai_settings_router
 from .routes.facebook import register_facebook_profile_routes, router as facebook_router
 from .routes.monitoring import router as monitoring_router
 from .routes.threads import register_threads_profile_routes, router as threads_router
+from .routes.video_affiliate import router as video_affiliate_router
 
 app = FastAPI(title="Affiliate Video Tool", version="0.2.0")
 
@@ -170,6 +171,7 @@ app.include_router(threads_router)
 app.include_router(ai_settings_router)
 app.include_router(admin_users_router)
 app.include_router(monitoring_router)
+app.include_router(video_affiliate_router)
 register_facebook_profile_routes(app)
 register_threads_profile_routes(app)
 
@@ -1725,6 +1727,54 @@ def api_direct_download_video(
         media_type="video/mp4",
         headers=headers,
     )
+
+
+def _run_affiliate_product_scan(video_id: int, user_id: int) -> dict:
+    from ..db.models import Profile
+    from ..video_affiliate.local_video_scan import (
+        analyze_downloaded_video,
+        get_owned_downloaded_video,
+    )
+
+    session = init_db(DB_PATH)
+    try:
+        video = get_owned_downloaded_video(session, video_id, user_id)
+        profile = session.query(Profile).filter_by(id=video.profile_id).first()
+        cookies = _cookies_path_for(profile.platform) if profile else None
+        return analyze_downloaded_video(
+            session,
+            video=video,
+            user_id=user_id,
+            download_dir=DOWNLOAD_DIR,
+            cookies_file=cookies,
+            quality="360",
+        )
+    finally:
+        session.close()
+
+
+@app.post("/api/videos/{video_id}/affiliate-scan")
+def api_affiliate_product_scan(
+    video_id: int,
+    user_id: int = Depends(get_current_user_id),
+):
+    job = job_manager.create("affiliate-scan")
+    job_manager.run(
+        job,
+        lambda: _run_affiliate_product_scan(video_id, user_id),
+        "Analisa produk (6 frame, file sementara dihapus)...",
+    )
+    return job_manager.to_dict(job)
+
+
+@app.get("/api/videos/{video_id}/affiliate-products")
+def api_affiliate_products(
+    video_id: int,
+    user_id: int = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+):
+    video, _profile = _get_owned_video(session, video_id, user_id)
+    return video_to_dict(video)
 
 
 @app.get("/api/videos/{video_id}/file")

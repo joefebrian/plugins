@@ -67,6 +67,18 @@
             </button>
           </div>
         </div>
+        <div class="nav-group">
+          <button class="nav-group-title" id="nav-video-affiliate-toggle" type="button">
+            <span>Video Affiliate</span>
+            <span class="nav-chevron">▾</span>
+          </button>
+          <div class="nav-submenu" id="nav-video-affiliate-menu">
+            <button type="button" class="nav-item" id="nav-brand-scan" data-view="video-affiliate" data-affiliate-section="brand-scan">
+              <span class="nav-icon"><i data-lucide="scan-search"></i></span>
+              <span>YouTube Video Brand Scan</span>
+            </button>
+          </div>
+        </div>
         <button type="button" class="nav-item" id="nav-monitoring" data-view="monitoring">
           <span class="nav-icon"><i data-lucide="activity"></i></span>
           <span>Monitoring</span>
@@ -256,18 +268,20 @@
             <h3>Videos Downloaded</h3>
             <span class="badge" id="downloaded-count-badge">0 video</span>
           </div>
-          <p class="panel-hint">Video yang sudah di-download ke PC atau disimpan di server. Status di daftar atas ikut ter-update.</p>
+          <p class="panel-hint">
+            Default hemat storage: download ke <strong>PC</strong> saja.
+            <strong>Produk</strong> mengunduh 360p sementara → 6 frame kecil →
+            <strong>hapus file otomatis</strong>. Nama produk muncul di kolom Video. “Simpan ke server” hanya jika butuh file permanen.
+          </p>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Video</th>
                   <th>Lokasi</th>
+                  <th>Produk Affiliate</th>
                   <th>Downloaded</th>
-                  <th>Upload</th>
                   <th>Views</th>
-                  <th>Likes</th>
-                  <th>GMV</th>
                   <th>Aksi</th>
                 </tr>
               </thead>
@@ -275,6 +289,7 @@
             </table>
           </div>
           <div id="downloaded-empty" class="downloaded-empty hidden">Belum ada video yang di-download.</div>
+          <div id="affiliate-products-detail" class="affiliate-products-detail hidden"></div>
         </section>
       </div>
       </div>
@@ -920,6 +935,82 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
         </section>
       </div>
 
+      <div id="view-video-affiliate" class="hidden">
+        <header class="page-header">
+          <div>
+            <p class="page-eyebrow">Video Affiliate</p>
+            <h2 id="affiliate-page-title">YouTube Video Brand Scan</h2>
+            <p class="page-desc" id="affiliate-page-desc">
+              Scan video YouTube untuk menemukan merek &amp; nama produk yang bisa di-tag affiliate. Fokus kata benda — bukan kata sifat atau kata kerja.
+            </p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-secondary" id="btn-affiliate-refresh" type="button">↻ Refresh</button>
+          </div>
+        </header>
+
+        <div class="monitoring-hub-tabs" id="affiliate-hub-tabs">
+          <button type="button" class="monitoring-hub-tab active" data-affiliate-section="brand-scan">YouTube Video Brand Scan</button>
+        </div>
+
+        <div id="affiliate-section-brand-scan" class="monitoring-section">
+          <section class="panel panel-wide">
+            <div class="panel-header">
+              <h3>Scan Video YouTube</h3>
+            </div>
+            <div class="panel-body">
+              <form id="form-brand-scan" class="brand-scan-form">
+                <label>URL Video YouTube</label>
+                <input type="text" name="url" placeholder="https://www.youtube.com/watch?v=... atau youtu.be/..." required />
+                <label class="checkbox-inline">
+                  <input type="checkbox" name="use_ai" checked />
+                  Gunakan AI untuk ekstraksi teks + vision frame (fallback heuristic jika AI tidak tersedia)
+                </label>
+                <label class="checkbox-inline">
+                  <input type="checkbox" name="use_visual" checked />
+                  Analisis visual — sample frame + OCR + Vision AI (butuh ffmpeg; OCR butuh tesseract)
+                </label>
+                <div class="modal-actions">
+                  <button type="submit" class="btn btn-primary" id="btn-brand-scan-submit">Mulai Scan</button>
+                </div>
+              </form>
+              <p class="modal-desc oauth-table-hint">
+                Sistem menganalisis teks + 6 frame awal (~72 detik). Prioritas: <strong>item yang terlihat</strong> (blue dress, gold necklace) — merek bonus jika logo terbaca. Butuh AI + ffmpeg.
+              </p>
+            </div>
+          </section>
+
+          <div id="brand-scan-result" class="brand-scan-result hidden"></div>
+
+          <section class="panel panel-wide">
+            <div class="panel-header">
+              <h3>Riwayat Scan</h3>
+              <div class="panel-header-actions">
+                <span class="badge" id="brand-scan-history-count">0 scan</span>
+                <button type="button" class="btn btn-sm btn-danger" id="btn-brand-scan-clear-all" title="Hapus semua riwayat">Hapus Semua</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="table-wrap">
+                <table class="monitoring-table">
+                  <thead>
+                    <tr>
+                      <th>Video</th>
+                      <th>Channel</th>
+                      <th>Produk/Merek</th>
+                      <th>Metode</th>
+                      <th>Tanggal</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="brand-scan-history-table"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
       <div id="view-monitoring" class="hidden">
         <header class="page-header">
           <div>
@@ -1047,10 +1138,19 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
           <div id="ai-summary-cards" class="oauth-summary-grid"></div>
           <section class="panel panel-wide">
             <div class="panel-header">
-              <h3>AI Providers</h3>
-              <span class="badge" id="ai-providers-count">0 providers</span>
+              <h3>AI Providers — Multi Key Failover</h3>
+              <div class="panel-header-actions">
+                <span class="badge" id="ai-providers-count">0 providers</span>
+                <button type="button" class="btn btn-sm btn-ghost" id="btn-ai-reset-all" title="Reset cooldown semua key">Reset Semua Cooldown</button>
+              </div>
             </div>
             <div class="panel-body">
+              <p class="modal-desc oauth-table-hint">
+                Bisa banyak key Gemini (multi GSuite) + OpenAI. Priority kecil = dipakai dulu.
+                Saat quota/rate-limit, sistem <strong>otomatis switch</strong> ke key berikutnya.
+                <strong>Token Usage</strong> = pemakaian call <em>sukses</em> hari ini (UTC), bukan sisa kuota Google/OpenAI.
+                Bar 0% artinya belum ada request AI yang berhasil (sering karena 429 dulu).
+              </p>
               <div class="table-wrap">
                 <table class="oauth-table">
                   <thead>
@@ -1066,37 +1166,64 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
                   <tbody id="ai-providers-table"></tbody>
                 </table>
               </div>
-              <p class="modal-desc oauth-table-hint">Priority lebih kecil = dipakai duluan. Saat limit habis atau rate limit, system otomatis pindah ke provider backup berikutnya.</p>
             </div>
           </section>
           <section class="panel panel-wide">
-            <div class="panel-header"><h3>Tambah AI Provider</h3></div>
+            <div class="panel-header"><h3>Bulk Import Gemini (GSuite)</h3></div>
             <div class="panel-body">
-              <p class="modal-desc">Tambah primary (OpenAI/Gemini) atau backup key dari akun/API berbeda untuk failover otomatis.</p>
+              <p class="modal-desc">
+                Tempel banyak API key Gemini (satu baris per key) dari akun GSuite company.
+                Tiap key otomatis masuk chain failover dengan priority berurutan.
+              </p>
+              <form id="form-ai-bulk">
+                <label>Provider</label>
+                <select name="provider">
+                  <option value="gemini" selected>Google Gemini (disarankan multi GSuite)</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+                <label>API Keys <span class="label-hint">satu per baris</span></label>
+                <textarea name="keys_text" rows="6" placeholder="AIza...key1&#10;AIza...key2&#10;AIza...key3" required></textarea>
+                <div class="form-row">
+                  <div>
+                    <label>Label prefix</label>
+                    <input type="text" name="label_prefix" placeholder="Gemini GSuite" />
+                  </div>
+                  <div>
+                    <label>Model</label>
+                    <input type="text" name="model" placeholder="gemini-flash-latest" />
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary">+ Import Banyak Key</button>
+              </form>
+            </div>
+          </section>
+          <section class="panel panel-wide">
+            <div class="panel-header"><h3>Tambah 1 Provider</h3></div>
+            <div class="panel-body">
               <form id="form-ai-provider">
                 <div class="form-row">
                   <div>
                     <label>Label</label>
-                    <input type="text" name="label" placeholder="Primary OpenAI" required />
+                    <input type="text" name="label" placeholder="Gemini GSuite #1" required />
                   </div>
                   <div>
                     <label>Provider</label>
                     <select name="provider" required>
-                      <option value="openai">OpenAI</option>
                       <option value="gemini">Google Gemini</option>
+                      <option value="openai">OpenAI</option>
                     </select>
                   </div>
                   <div>
-                    <label>Priority <span class="label-hint">lebih kecil = dipakai duluan</span></label>
-                    <input type="number" name="priority" value="100" min="1" />
+                    <label>Priority <span class="label-hint">kosong = auto</span></label>
+                    <input type="number" name="priority" min="1" placeholder="auto" />
                   </div>
                 </div>
                 <label>API Key</label>
-                <input type="password" name="api_key" placeholder="sk-... atau AIza..." required autocomplete="new-password" />
+                <input type="password" name="api_key" placeholder="AIza... atau sk-..." required autocomplete="new-password" />
                 <div class="form-row">
                   <div>
                     <label>Model</label>
-                    <input type="text" name="model" placeholder="gpt-4o-mini / gemini-2.0-flash" />
+                    <input type="text" name="model" placeholder="gemini-flash-latest / gpt-4o-mini" />
                   </div>
                   <div>
                     <label>Daily Token Limit</label>
@@ -1358,6 +1485,6 @@ Views: {views} | GMV: Rp {gmv} | @{username}</textarea>
   </div>
 
   <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
-  <script src="/app.js?v=20260713-subscription"></script>
+  <script src="/app.js?v=20261009-produk"></script>
 </body>
 </html>

@@ -457,6 +457,139 @@ h1, h2, h3, .page-header h2, .panel-header h3, #profile-title {
   background: linear-gradient(90deg, var(--red), #ef4444);
 }
 
+.brand-scan-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+}
+
+.brand-scan-form .checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.brand-scan-result {
+  margin: 16px 0;
+}
+
+.brand-scan-result-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  padding: 16px;
+}
+
+.brand-scan-video-head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.brand-scan-thumb {
+  width: 120px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.affiliate-products-cell {
+  max-width: 220px;
+  font-size: 12px;
+}
+.affiliate-prod-preview {
+  margin-top: 4px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.affiliate-products-detail {
+  margin-top: 16px;
+  padding: 0 4px 12px;
+}
+.affiliate-products-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--panel-bg, rgba(255,255,255,0.02));
+}
+.affiliate-prod-btn {
+  font-weight: 600;
+}
+.video-product-line {
+  display: block;
+  margin-top: 4px;
+  max-width: 240px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.video-product-line.is-status {
+  color: var(--yellow);
+  font-weight: 500;
+  cursor: default;
+}
+
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.brand-scan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.brand-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.brand-chip.product { border-color: rgba(59, 130, 246, 0.35); }
+.brand-chip.brand { border-color: rgba(34, 197, 94, 0.35); }
+.brand-chip.item { border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.08); }
+
+.brand-chip-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .monitoring-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1226,7 +1359,6 @@ tr.video-row-selected {
   grid-template-columns: 340px 1fr;
   gap: 16px;
 }
-
 
 .downloaded-panel {
   margin-top: 16px;

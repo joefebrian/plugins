@@ -176,6 +176,24 @@ function hideLoading() {
   $('#loading').classList.add('hidden');
 }
 
+function formatApiError(detail, fallback = 'Request failed') {
+  if (!detail) return fallback;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail.map((item) => {
+      if (!item || typeof item !== 'object') return String(item);
+      const loc = Array.isArray(item.loc) ? item.loc.filter((x) => x !== 'body').join('.') : '';
+      const msg = item.msg || item.message || JSON.stringify(item);
+      return loc ? `${loc}: ${msg}` : msg;
+    });
+    return parts.join(' · ') || fallback;
+  }
+  if (typeof detail === 'object') {
+    return detail.msg || detail.message || JSON.stringify(detail);
+  }
+  return String(detail);
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(API + path, { credentials: 'same-origin', ...opts });
   if (res.status === 401) {
@@ -183,11 +201,11 @@ async function api(path, opts = {}) {
     throw new Error('Sesi berakhir, silakan login ulang');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || data.message || 'Request failed');
+  if (!res.ok) throw new Error(formatApiError(data.detail, data.message || 'Request failed'));
   return data;
 }
 
-async function pollJob(jobId, onDone) {
+async function pollJob(jobId, onDone, opts = {}) {
   clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
     try {
@@ -200,7 +218,8 @@ async function pollJob(jobId, onDone) {
       } else if (job.status === 'error') {
         clearInterval(pollTimer);
         hideLoading();
-        showToast(job.message, 'error');
+        if (opts.callOnError) onDone(job);
+        else showToast(formatApiError(job.message, 'Proses gagal'), 'error');
       }
     } catch (e) {
       clearInterval(pollTimer);
@@ -502,7 +521,8 @@ async function triggerDirectDownload(videoDbId, { refresh = true } = {}) {
   );
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Download gagal (${res.status})`);
+    const msg = formatApiError(err.detail, `Download gagal (${res.status})`);
+    throw new Error(msg || `Download gagal (${res.status})`);
   }
   const blob = await res.blob();
   const filename = parseContentDispositionFilename(res.headers.get('Content-Disposition')) || 'video.mp4';
@@ -604,7 +624,9 @@ async function loadVideos() {
   }
   updateVideoSelectCount();
 
+  const byId = {};
   videos.forEach((v) => {
+    byId[v.id] = v;
     const tr = document.createElement('tr');
     if (v.is_downloaded) tr.classList.add('row-downloaded');
     const statusCls = v.is_downloaded ? 'status-downloaded' : 'status-pending';
@@ -621,6 +643,7 @@ async function loadVideos() {
       <td>
         <div class="${titleCls}" title="${statusTitle}">${v.title || 'Untitled'}</div>
         <div class="video-id">${v.platform_video_id}</div>
+        ${renderVideoProductLine(v)}
       </td>
       <td>${fmtDateShort(v.posted_at)}</td>
       <td>${fmtNum(v.views)}</td>
@@ -628,6 +651,7 @@ async function loadVideos() {
       <td class="${v.gmv ? 'money' : 'money-empty'}">${fmtMoney(v.gmv)}</td>
       <td class="${v.commission ? 'money' : 'money-empty'}">${fmtMoney(v.commission)}</td>
       <td>
+        <button class="btn btn-sm btn-primary" data-affiliate-scan="${v.id}" title="Lihat produk di video. File sementara, lalu dihapus.">Produk</button>
         <button class="btn btn-sm btn-secondary" data-direct-dl="${v.id}" title="Download langsung ke PC">↓</button>
         <button class="btn btn-sm btn-ghost" data-dl="${v.platform_video_id}" title="Simpan ke server">💾</button>
         <button class="btn btn-sm btn-ghost" data-edit="${v.id}" data-vid="${v.platform_video_id}" data-gmv="${v.gmv || ''}" data-comm="${v.commission || ''}" title="Edit GMV">✎</button>
@@ -663,6 +687,163 @@ async function loadVideos() {
   tbody.querySelectorAll('.video-select').forEach((cb) => {
     cb.onchange = updateVideoSelectCount;
   });
+  tbody.querySelectorAll('[data-affiliate-scan]').forEach((btn) => {
+    btn.onclick = () => analyzeDownloadedVideoProducts(parseInt(btn.dataset.affiliateScan, 10));
+  });
+  tbody.querySelectorAll('[data-show-products]').forEach((btn) => {
+    btn.onclick = () => {
+      const vid = parseInt(btn.dataset.showProducts, 10);
+      if (byId[vid]) showAffiliateProductsDetail(byId[vid]);
+    };
+  });
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function renderVideoProductLine(v) {
+  const products = v.affiliate_products || [];
+  if (v.affiliate_scan_status === 'running') {
+    return '<div class="video-product-line is-status">Analisa…</div>';
+  }
+  if (!products.length) {
+    if (v.affiliate_scan_status === 'error') {
+      return '<div class="video-product-line is-status">Analisa gagal</div>';
+    }
+    return '';
+  }
+  const names = products.slice(0, 2).map((p) => escHtml(p.name || 'Produk')).join(' · ');
+  const more = products.length > 2 ? ` +${products.length - 2}` : '';
+  return `<button type="button" class="video-product-line" data-show-products="${v.id}" title="Lihat produk di video">${names}${more}</button>`;
+}
+
+function renderAffiliateProductsCell(v) {
+  const products = v.affiliate_products || [];
+  const status = v.affiliate_scan_status || '';
+  if (status === 'running') {
+    return '<span class="status-badge status-pending">Analisa…</span>';
+  }
+  if (status === 'error') {
+    return `<span class="status-badge status-pending" title="${(v.affiliate_scan_note || '').replace(/"/g, '&quot;')}">Gagal</span>`;
+  }
+  if (!products.length) {
+    return '<span class="mon-handle">Belum dianalisa</span>';
+  }
+  const first = escHtml(products[0]?.name || 'Produk');
+  const extra = products.length > 1 ? ` +${products.length - 1}` : '';
+  const preview = products.slice(0, 3).map((p) => escHtml(p.name)).join(', ');
+  return `
+    <button type="button" class="btn btn-sm btn-ghost affiliate-prod-btn" data-show-products="${v.id}" title="Lihat semua produk">
+      ${first}${extra}
+    </button>
+    <div class="affiliate-prod-preview">${preview}</div>`;
+}
+
+function showAffiliateProductsDetail(video) {
+  const el = $('#affiliate-products-detail');
+  if (!el) return;
+  const products = video.affiliate_products || [];
+  el.classList.remove('hidden');
+  if (!products.length) {
+    el.innerHTML = `
+      <div class="affiliate-products-card">
+        <p class="modal-desc">Belum ada produk terdeteksi untuk “${video.title || video.platform_video_id}”.</p>
+        ${video.affiliate_scan_note ? `<p class="modal-desc oauth-table-hint">Detail: ${video.affiliate_scan_note}</p>` : ''}
+        <p class="modal-desc oauth-table-hint">Tips: AI provider di Settings → AI. File diunduh sementara lalu dihapus — hasil produk tetap tersimpan di DB.</p>
+      </div>`;
+    return;
+  }
+  const rows = products.map((p) => {
+    const sec = Number(p.timestamp_sec);
+    const detik = Number.isFinite(sec) ? `${Math.round(sec)}s` : '—';
+    return `
+    <tr>
+      <td><strong>${escHtml(p.name || '—')}</strong></td>
+      <td>${escHtml(p.function_label || p.function || '—')}</td>
+      <td>${escHtml(p.category || '—')}</td>
+      <td>${escHtml(p.brand || '—')}</td>
+      <td>${detik}</td>
+      <td>${Math.round((p.confidence || 0) * 100)}%</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="affiliate-products-card">
+      <div class="panel-header" style="border:0;padding:0 0 10px">
+        <h3 style="font-size:14px">Produk Affiliate — ${video.title || video.platform_video_id}</h3>
+        <button type="button" class="btn btn-sm btn-ghost" id="btn-close-affiliate-detail">Tutup</button>
+      </div>
+      <p class="modal-desc oauth-table-hint">${(video.affiliate_scan_note || '').replace(/HTTP \d+:\s*\{[\s\S]*$/g, '').slice(0, 280)}</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Produk / Benda</th>
+              <th>Fungsi</th>
+              <th>Kategori</th>
+              <th>Brand (bonus)</th>
+              <th>Detik</th>
+              <th>Yakin</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  $('#btn-close-affiliate-detail')?.addEventListener('click', () => {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+  });
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function analyzeDownloadedVideoProducts(videoId) {
+  showLoading('Analisa produk (6 frame, file sementara dihapus)…');
+  try {
+    const job = await api(`/videos/${videoId}/affiliate-scan`, { method: 'POST' });
+    pollJob(job.id, async (done) => {
+      if (done.status === 'error') {
+        showToast(formatApiError(done.message, 'Analisa gagal — cek AI provider / ffmpeg'), 'error');
+        await loadVideos();
+        await loadDownloadedVideos();
+        return;
+      }
+      const result = done.result || {};
+      const count = result.product_count || (result.products || []).length;
+      const note = result.note || '';
+      if (count) {
+        const visionSkip = /Vision AI.*quota|Vision AI dilewati|tidak dipakai/i.test(note);
+        showToast(
+          visionSkip
+            ? `${count} produk terdeteksi (OCR/hashtag — Vision AI skip: quota key habis)`
+            : `${count} produk terdeteksi`,
+          'success',
+        );
+      } else if (/quota|rate limit|provider|Vision AI/i.test(note)) {
+        showToast(
+          'Tidak ada produk. Semua AI key quota habis — tambah key Gemini GSuite di Settings → AI, atau pastikan teks produk terbaca OCR.',
+          'error',
+        );
+      } else {
+        showToast(note ? `Tidak ada produk. ${note.slice(0, 140)}` : 'Analisa selesai — tidak ada produk terdeteksi', 'error');
+      }
+      await loadVideos();
+      await loadDownloadedVideos();
+      try {
+        const detail = await api(`/videos/${videoId}/affiliate-products`);
+        if ((detail.affiliate_products || []).length) {
+          showAffiliateProductsDetail(detail);
+        } else if (detail.affiliate_scan_note) {
+          showAffiliateProductsDetail(detail);
+        }
+      } catch (_) { /* ignore */ }
+    }, { callOnError: true });
+  } catch (e) {
+    hideLoading();
+    showToast(e.message, 'error');
+  }
 }
 
 async function loadDownloadedVideos() {
@@ -685,22 +866,24 @@ async function loadDownloadedVideos() {
   if (badge) badge.textContent = `${downloaded.length} video`;
   if (emptyEl) emptyEl.classList.toggle('hidden', downloaded.length > 0);
 
+  const byId = {};
   downloaded.forEach((v) => {
+    byId[v.id] = v;
     const tr = document.createElement('tr');
     const loc = v.has_server_file ? 'Server' : 'PC';
     const locCls = v.has_server_file ? 'loc-server' : 'loc-pc';
+    const analyzeBtn = `<button class="btn btn-sm btn-primary" data-affiliate-scan="${v.id}" title="Temp download → analisa → hapus file. Hanya hasil produk disimpan.">Analisa Produk</button>`;
     tr.innerHTML = `
       <td>
         <div class="video-title video-title-downloaded">${v.title || 'Untitled'}</div>
         <div class="video-id">${v.platform_video_id}</div>
       </td>
       <td><span class="status-badge ${locCls}">${loc}</span></td>
+      <td class="affiliate-products-cell">${renderAffiliateProductsCell(v)}</td>
       <td>${fmtDateShort(v.downloaded_at)}</td>
-      <td>${fmtDateShort(v.posted_at)}</td>
       <td>${fmtNum(v.views)}</td>
-      <td>${fmtNum(v.likes)}</td>
-      <td class="${v.gmv ? 'money' : 'money-empty'}">${fmtMoney(v.gmv)}</td>
-      <td>
+      <td class="table-actions">
+        ${analyzeBtn}
         <button class="btn btn-sm btn-secondary" data-direct-dl="${v.id}" title="Download ulang ke PC">↓</button>
         ${!v.has_server_file ? `<button class="btn btn-sm btn-ghost" data-dl="${v.platform_video_id}" title="Simpan ke server">💾</button>` : ''}
         ${v.has_server_file ? `<a class="btn btn-sm btn-ghost" href="/api/videos/${v.id}/file" target="_blank" title="Putar file server">▶</a>` : ''}
@@ -721,6 +904,15 @@ async function loadDownloadedVideos() {
   });
   tbody.querySelectorAll('[data-dl]').forEach((btn) => {
     btn.onclick = () => downloadSingle(btn.dataset.dl);
+  });
+  tbody.querySelectorAll('[data-affiliate-scan]').forEach((btn) => {
+    btn.onclick = () => analyzeDownloadedVideoProducts(parseInt(btn.dataset.affiliateScan, 10));
+  });
+  tbody.querySelectorAll('[data-show-products]').forEach((btn) => {
+    btn.onclick = () => {
+      const vid = parseInt(btn.dataset.showProducts, 10);
+      if (byId[vid]) showAffiliateProductsDetail(byId[vid]);
+    };
   });
 }
 
@@ -998,6 +1190,16 @@ let aiMonitoringTimer = null;
 let socialMonitoringTimer = null;
 let monitoringPlatform = 'overview';
 let monitoringSection = 'oauth';
+let affiliateSection = 'brand-scan';
+let activeBrandScanId = null;
+
+const AFFILIATE_SECTION_LABELS = {
+  'brand-scan': 'YouTube Video Brand Scan',
+};
+
+const AFFILIATE_SECTION_HINTS = {
+  'brand-scan': 'Scan enteng: teks + 6 frame. Item yang terlihat (pakaian, aksesoris), merek jika terbaca.',
+};
 
 const MONITORING_SECTION_LABELS = {
   oauth: 'OAuth & Akun',
@@ -1484,6 +1686,161 @@ async function refreshMonitoringHub() {
   }
 }
 
+function setAffiliateSection(section) {
+  affiliateSection = section || 'brand-scan';
+  $$('#affiliate-hub-tabs .monitoring-hub-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.affiliateSection === affiliateSection);
+  });
+  $$('[id^="affiliate-section-"]').forEach((el) => {
+    const id = el.id?.replace('affiliate-section-', '');
+    el.classList.toggle('hidden', id !== affiliateSection);
+  });
+  const title = $('#affiliate-page-title');
+  const desc = $('#affiliate-page-desc');
+  if (title) title.textContent = AFFILIATE_SECTION_LABELS[affiliateSection] || 'Video Affiliate';
+  if (desc) desc.textContent = AFFILIATE_SECTION_HINTS[affiliateSection] || '';
+}
+
+async function loadVideoAffiliateHub(section = affiliateSection) {
+  setAffiliateSection(section);
+  if (section === 'brand-scan') {
+    await loadBrandScanPage();
+  }
+}
+
+function renderBrandScanResult(scan) {
+  const el = $('#brand-scan-result');
+  if (!el || !scan) return;
+  const mentions = scan.mentions || [];
+  const items = scan.items || mentions.filter((m) => m.type === 'item');
+  const brands = scan.brands || mentions.filter((m) => m.type !== 'item');
+  el.classList.remove('hidden');
+  const sourceLabel = (s) => ({
+    ocr: 'OCR', vision: 'Vision', 'vision-item': 'Visual', transcript: 'Subtitle',
+    title: 'Judul', description: 'Deskripsi',
+  }[s] || s || 'teks');
+
+  const chipHtml = (list, emptyMsg) => (list.length
+    ? list.map((m) => `
+        <span class="brand-chip ${m.type || 'product'}" title="${(m.context || '').replace(/"/g, '&quot;')}">
+          ${m.name}
+          <span class="brand-chip-meta">${m.type || 'product'} · ${sourceLabel((m.source || '').split('+')[0])} · ${Math.round((m.confidence || 0) * 100)}%</span>
+        </span>`).join('')
+    : `<p class="modal-desc">${emptyMsg}</p>`);
+
+  el.innerHTML = `
+    <div class="brand-scan-result-card">
+      <div class="brand-scan-video-head">
+        ${scan.thumbnail_url ? `<img class="brand-scan-thumb" src="${scan.thumbnail_url}" alt="" />` : ''}
+        <div>
+          <div class="mon-name">${scan.video_title || scan.youtube_video_id}</div>
+          <div class="mon-handle">${scan.channel_title || ''} · ${scan.extraction_method || 'heuristic'}${scan.has_transcript ? '' : ' · tanpa subtitle'}</div>
+          <a href="${scan.video_url}" target="_blank" rel="noopener" class="mon-handle">Buka di YouTube</a>
+        </div>
+      </div>
+      <div class="osc-label">Item di Video — pakaian &amp; aksesoris (${items.length})</div>
+      <div class="brand-scan-chips">${chipHtml(items, 'Tidak ada item terdeteksi. Pastikan AI + analisis visual aktif, dan orang/produk terlihat jelas di frame.')}</div>
+      <div class="osc-label" style="margin-top:1rem">Merek / Produk — bonus jika terbaca (${brands.length})</div>
+      <div class="brand-scan-chips">${chipHtml(brands, 'Tidak ada merek terdeteksi — normal untuk vlog tanpa brand pihak ketiga.')}</div>
+      ${scan.visual_note ? `<p class="modal-desc oauth-table-hint">Visual: ${scan.visual_note}</p>` : ''}
+      ${scan.ai_note ? `<p class="modal-desc oauth-table-hint">Catatan AI: ${scan.ai_note} — menggunakan fallback heuristic.</p>` : ''}
+    </div>`;
+}
+
+function clearBrandScanResultPanel() {
+  const el = $('#brand-scan-result');
+  if (el) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+  }
+}
+
+async function deleteBrandScan(scanId) {
+  if (!confirm('Hapus riwayat scan ini?')) return;
+  try {
+    await api(`/video-affiliate/brand-scans/${scanId}`, { method: 'DELETE' });
+    if (activeBrandScanId === scanId || String(activeBrandScanId) === String(scanId)) {
+      activeBrandScanId = null;
+      clearBrandScanResultPanel();
+    }
+    showToast('Riwayat scan dihapus', 'success');
+    await loadBrandScanPage();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function deleteAllBrandScans() {
+  if (!confirm('Hapus SEMUA riwayat scan? Tindakan ini tidak bisa dibatalkan.')) return;
+  try {
+    const res = await api('/video-affiliate/brand-scans', { method: 'DELETE' });
+    activeBrandScanId = null;
+    clearBrandScanResultPanel();
+    showToast(`${res.deleted || 0} riwayat scan dihapus`, 'success');
+    await loadBrandScanPage();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+function renderBrandScanHistory(scans = []) {
+  const tbody = $('#brand-scan-history-table');
+  const countEl = $('#brand-scan-history-count');
+  const clearBtn = $('#btn-brand-scan-clear-all');
+  if (!tbody) return;
+  if (countEl) countEl.textContent = `${scans.length} scan`;
+  if (clearBtn) clearBtn.disabled = !scans.length;
+  if (!scans.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="modal-desc">Belum ada riwayat scan.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = scans.map((s) => `
+    <tr>
+      <td>
+        <div class="mon-name">${(s.video_title || s.youtube_video_id || '').slice(0, 60)}</div>
+        <a href="${s.video_url}" target="_blank" rel="noopener" class="mon-handle">${s.youtube_video_id}</a>
+      </td>
+      <td>${s.channel_title || '—'}</td>
+      <td><strong>${s.mention_count || 0}</strong></td>
+      <td><span class="platform-pill">${s.extraction_method || '—'}</span></td>
+      <td>${s.created_at ? new Date(s.created_at).toLocaleString('id-ID') : '—'}</td>
+      <td class="table-actions">
+        <button type="button" class="btn btn-sm btn-ghost" data-brand-scan-open="${s.id}">Lihat</button>
+        <button type="button" class="btn btn-sm btn-danger" data-brand-scan-delete="${s.id}" title="Hapus">Hapus</button>
+      </td>
+    </tr>`).join('');
+
+  tbody.querySelectorAll('[data-brand-scan-open]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        const data = await api(`/video-affiliate/brand-scans/${btn.dataset.brandScanOpen}`);
+        activeBrandScanId = data.id;
+        renderBrandScanResult(data);
+        document.getElementById('brand-scan-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    };
+  });
+
+  tbody.querySelectorAll('[data-brand-scan-delete]').forEach((btn) => {
+    btn.onclick = () => deleteBrandScan(parseInt(btn.dataset.brandScanDelete, 10));
+  });
+}
+
+async function loadBrandScanPage() {
+  try {
+    const data = await api('/video-affiliate/brand-scans');
+    renderBrandScanHistory(data.scans || []);
+    if (activeBrandScanId) {
+      const detail = await api(`/video-affiliate/brand-scans/${activeBrandScanId}`);
+      renderBrandScanResult(detail);
+    }
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
 function switchView(view, opts = {}) {
   const views = {
     profiles: '#view-profiles',
@@ -1494,6 +1851,7 @@ function switchView(view, opts = {}) {
     cookies: '#view-cookies',
     monitoring: '#view-monitoring',
     'oauth-monitoring': '#view-oauth-monitoring',
+    'video-affiliate': '#view-video-affiliate',
   };
   if (!views[view]) return;
   Object.entries(views).forEach(([key, sel]) => {
@@ -1506,6 +1864,9 @@ function switchView(view, opts = {}) {
   document.querySelector('.main')?.scrollTo(0, 0);
   if (['youtube', 'facebook', 'threads', 'oauth-monitoring'].includes(view)) {
     $('#nav-multiupload-toggle')?.closest('.nav-group')?.classList.add('open');
+  }
+  if (view === 'video-affiliate') {
+    $('#nav-video-affiliate-toggle')?.closest('.nav-group')?.classList.add('open');
   }
 
   if (oauthMonitoringTimer) {
@@ -1529,6 +1890,10 @@ function switchView(view, opts = {}) {
     loadOAuthMonitoringPage();
     oauthMonitoringTimer = setInterval(loadOAuthMonitoringPage, 30000);
   }
+  if (view === 'video-affiliate') {
+    const section = opts.affiliateSection || affiliateSection || 'brand-scan';
+    loadVideoAffiliateHub(section);
+  }
   if (view === 'monitoring') {
     const section = opts.monitoringSection || monitoringSection || 'oauth';
     const platform = opts.monitoringPlatform || monitoringPlatform || 'overview';
@@ -1549,7 +1914,10 @@ function initSidebarNavigation() {
     const btn = e.target.closest('.nav-item[data-view]');
     if (!btn || btn.disabled || btn.classList.contains('nav-soon')) return;
     e.preventDefault();
-    switchView(btn.dataset.view);
+    const opts = btn.dataset.affiliateSection
+      ? { affiliateSection: btn.dataset.affiliateSection }
+      : {};
+    switchView(btn.dataset.view, opts);
   });
 }
 initSidebarNavigation();
@@ -1573,6 +1941,50 @@ $('#link-settings-to-monitoring-ai')?.addEventListener('click', (e) => {
 $('#nav-multiupload-toggle').onclick = () => {
   $('#nav-multiupload-toggle').closest('.nav-group').classList.toggle('open');
 };
+$('#nav-video-affiliate-toggle')?.addEventListener('click', () => {
+  $('#nav-video-affiliate-toggle')?.closest('.nav-group')?.classList.toggle('open');
+});
+$('#affiliate-hub-tabs')?.addEventListener('click', (e) => {
+  const tab = e.target.closest('.monitoring-hub-tab[data-affiliate-section]');
+  if (!tab) return;
+  switchView('video-affiliate', { affiliateSection: tab.dataset.affiliateSection });
+});
+$('#btn-affiliate-refresh')?.addEventListener('click', () => {
+  loadVideoAffiliateHub(affiliateSection);
+  showToast('Video Affiliate diperbarui');
+});
+$('#btn-brand-scan-clear-all')?.addEventListener('click', () => deleteAllBrandScans());
+
+$('#form-brand-scan')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const url = (fd.get('url') || '').toString().trim();
+  const useAi = fd.get('use_ai') === 'on';
+  const useVisual = fd.get('use_visual') === 'on';
+  if (!url) {
+    showToast('URL video wajib diisi', 'error');
+    return;
+  }
+  showLoading('Menganalisis video YouTube...');
+  try {
+    const job = await api('/video-affiliate/brand-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, use_ai: useAi, use_visual: useVisual }),
+    });
+    pollJob(job.id, async (done) => {
+      if (done.status === 'error') return;
+      const scan = done.result || {};
+      activeBrandScanId = scan.id;
+      renderBrandScanResult(scan);
+      await loadBrandScanPage();
+      showToast(`Scan selesai — ${scan.mention_count || 0} produk/merek ditemukan`, 'success');
+    });
+  } catch (err) {
+    hideLoading();
+    showToast(err.message, 'error');
+  }
+});
 $('#btn-monitoring-refresh')?.addEventListener('click', () => refreshMonitoringHub());
 $('#monitoring-hub-tabs')?.addEventListener('click', (e) => {
   const tab = e.target.closest('.monitoring-hub-tab[data-monitoring-section]');
@@ -1603,12 +2015,25 @@ function statusBadge(status) {
   return `<span class="status-badge ${cls}">${labels[status] || status}</span>`;
 }
 
+function fmtUsageNum(n) {
+  const v = Number(n) || 0;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 10_000) return `${(v / 1000).toFixed(1)}K`;
+  return String(v);
+}
+
 function renderQuotaBar(used, limit, pct) {
-  const cls = quotaBarClass(pct);
+  const u = Number(used) || 0;
+  const lim = Number(limit) || 0;
+  const p = Number(pct) || 0;
+  const cls = quotaBarClass(p);
+  // Bar min width so 0% still shows track; fill at least 2px when used > 0
+  const fillW = u > 0 ? Math.max(Math.min(p, 100), 1.5) : 0;
+  const emptyHint = u === 0 ? ' · belum ada call sukses hari ini' : '';
   return `
     <div class="quota-bar-wrap">
-      <div class="quota-bar-label">${used} / ${limit} (${pct}%)</div>
-      <div class="quota-bar"><div class="quota-bar-fill ${cls}" style="width:${Math.min(pct, 100)}%"></div></div>
+      <div class="quota-bar-label">${fmtUsageNum(u)} / ${fmtUsageNum(lim)} (${p}%)${emptyHint}</div>
+      <div class="quota-bar"><div class="quota-bar-fill ${cls}" style="width:${fillW}%"></div></div>
     </div>`;
 }
 
@@ -1776,16 +2201,24 @@ function renderAiSummaryCards(overview) {
   const rec = overview.providers?.find((p) => p.id === overview.recommended_provider_id);
   el.innerHTML = `
     <div class="oauth-summary-card">
-      <div class="osc-label">Total Providers</div>
+      <div class="osc-label">Total Keys</div>
       <div class="osc-value">${overview.total_providers || 0}</div>
+      <div class="osc-meta">Gemini ${overview.gemini_keys || 0} · OpenAI ${overview.openai_keys || 0}</div>
     </div>
     <div class="oauth-summary-card ${availCls}">
-      <div class="osc-label">Available</div>
+      <div class="osc-label">Available Now</div>
       <div class="osc-value">${overview.available_providers || 0}</div>
+      <div class="osc-meta">${overview.failover_enabled ? 'Failover ON' : 'Tambah key backup'}</div>
+    </div>
+    <div class="oauth-summary-card">
+      <div class="osc-label">Usage Hari Ini</div>
+      <div class="osc-value" style="font-size:16px;margin-top:8px">${fmtUsageNum(overview.tokens_today_total || 0)} tok</div>
+      <div class="osc-meta">${fmtUsageNum(overview.requests_today_total || 0)} request sukses</div>
     </div>
     <div class="oauth-summary-card ${rec ? 'ok' : 'warn'}">
-      <div class="osc-label">Recommended</div>
+      <div class="osc-label">Next in Chain</div>
       <div class="osc-value" style="font-size:14px;margin-top:8px">${rec ? rec.label : '—'}</div>
+      <div class="osc-meta">${rec ? `priority ${rec.priority}` : 'Semua exhausted / kosong'}</div>
     </div>`;
 }
 
@@ -1798,12 +2231,19 @@ function renderAiProvidersTable(providers) {
     tbody.innerHTML = '<tr><td colspan="6" class="modal-desc">Belum ada AI provider. Tambah OpenAI atau Gemini di bawah, atau import dari OPENAI_API_KEY di .env (auto-seed saat pertama kali).</td></tr>';
     return;
   }
-  tbody.innerHTML = providers.map((p) => `
+  tbody.innerHTML = providers.map((p) => {
+    const cool = p.cooldown_seconds
+      ? (p.cooldown_seconds >= 3600
+        ? `cooldown ~${Math.ceil(p.cooldown_seconds / 3600)}h`
+        : `cooldown ~${Math.ceil(p.cooldown_seconds / 60)}m`)
+      : '';
+    return `
     <tr data-provider-id="${p.id}">
       <td>
-        <div class="app-label">${p.label}</div>
+        <div class="app-label">${p.label}${p.available ? ' · <span style="color:var(--ok,#22c55e)">ready</span>' : ''}</div>
         <div class="app-id">#${p.id} · ${providerTypeLabel(p.provider)} · priority ${p.priority} · ${p.api_key || '—'}</div>
-        ${p.last_error ? `<div class="app-id" title="${p.last_error}">⚠ ${p.last_error.slice(0, 60)}</div>` : ''}
+        ${p.last_error ? `<div class="app-id" title="${p.last_error}">⚠ ${p.last_error.slice(0, 80)}</div>` : ''}
+        ${cool ? `<div class="app-id">${cool}</div>` : ''}
       </td>
       <td>${statusBadge(p.status)}</td>
       <td>${renderQuotaBar(p.tokens_today, p.tokens_limit, p.tokens_pct)}</td>
@@ -1816,7 +2256,8 @@ function renderAiProvidersTable(providers) {
           <button class="btn btn-sm btn-danger" data-del-ai="${p.id}">Hapus</button>
         </div>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   tbody.querySelectorAll('[data-reset-ai]').forEach((btn) => {
     btn.onclick = async () => {
@@ -2434,14 +2875,15 @@ $('#form-ai-provider')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
   const model = (fd.get('model') || '').trim();
+  const prioRaw = (fd.get('priority') || '').toString().trim();
   const body = {
     label: fd.get('label'),
     provider: fd.get('provider'),
     api_key: fd.get('api_key'),
-    priority: parseInt(fd.get('priority'), 10) || 100,
     daily_token_limit: parseInt(fd.get('daily_token_limit'), 10) || 100000,
     daily_request_limit: parseInt(fd.get('daily_request_limit'), 10) || 500,
   };
+  if (prioRaw) body.priority = parseInt(prioRaw, 10);
   if (model) body.model = model;
   try {
     const res = await api('/settings/ai/providers', {
@@ -2451,9 +2893,43 @@ $('#form-ai-provider')?.addEventListener('submit', async (e) => {
     });
     showToast(res.message || 'AI Provider ditambahkan');
     e.target.reset();
-    e.target.priority.value = '100';
     e.target.daily_token_limit.value = '100000';
     e.target.daily_request_limit.value = '500';
+    loadMonitoringAiPage();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+});
+
+$('#form-ai-bulk')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = {
+    provider: fd.get('provider') || 'gemini',
+    keys_text: fd.get('keys_text') || '',
+    label_prefix: (fd.get('label_prefix') || '').trim(),
+    model: (fd.get('model') || '').trim() || null,
+  };
+  try {
+    const res = await api('/settings/ai/providers/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    showToast(res.message || `${res.added || 0} key ditambahkan`);
+    e.target.reset();
+    e.target.provider.value = 'gemini';
+    loadMonitoringAiPage();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+});
+
+$('#btn-ai-reset-all')?.addEventListener('click', async () => {
+  if (!confirm('Reset cooldown & counter semua AI key?')) return;
+  try {
+    const res = await api('/settings/ai/providers/reset-all-limits', { method: 'POST' });
+    showToast(res.message || 'Semua cooldown di-reset');
     loadMonitoringAiPage();
   } catch (err) {
     showToast(err.message, 'error');
@@ -3639,9 +4115,12 @@ $('#btn-logout').onclick = async () => {
     const initView = ytParams.get('view');
     const monPlatform = ytParams.get('platform') || 'overview';
     const monSection = ytParams.get('section') || 'oauth';
-    if (['youtube', 'facebook', 'threads', 'oauth-monitoring', 'settings', 'cookies', 'monitoring'].includes(initView)) {
+    const affiliateSectionInit = ytParams.get('section') || 'brand-scan';
+    if (['youtube', 'facebook', 'threads', 'oauth-monitoring', 'settings', 'cookies', 'monitoring', 'video-affiliate'].includes(initView)) {
       if (initView === 'monitoring') {
         switchView('monitoring', { monitoringSection: monSection, monitoringPlatform: monPlatform });
+      } else if (initView === 'video-affiliate') {
+        switchView('video-affiliate', { affiliateSection: affiliateSectionInit });
       } else {
         switchView(initView);
       }

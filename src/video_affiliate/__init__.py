@@ -1,0 +1,1 @@
+"""Video Affiliate features — product/brand detection for affiliate tagging."""
