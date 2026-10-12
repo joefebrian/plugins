@@ -793,7 +793,8 @@ async function loadVideos() {
         ${(v.youtube_uploads || []).map((u) => `<a class="btn btn-sm btn-ghost" href="${u.youtube_url}" target="_blank" title="${u.channel_title || 'YouTube'}">YT</a>`).join('')}
         ${!(v.youtube_uploads || []).length && v.youtube_url ? `<a class="btn btn-sm btn-ghost" href="${v.youtube_url}" target="_blank" title="YouTube">YT</a>` : ''}
         ${(v.facebook_uploads || []).map((u) => `<a class="btn btn-sm btn-ghost" href="${u.post_url}" target="_blank" title="${u.page_name || 'Facebook'}">FB</a>`).join('')}
-        <a class="btn btn-sm btn-ghost" href="${v.url}" target="_blank">↗</a>
+        ${copyOriginalLinkButton(v.url)}
+        <a class="btn btn-sm btn-ghost" href="${escHtml(v.url)}" target="_blank" title="Buka video asli">↗</a>
       </td>`;
     tbody.appendChild(tr);
   });
@@ -827,6 +828,48 @@ async function loadVideos() {
     btn.onclick = () => {
       const vid = parseInt(btn.dataset.showProducts, 10);
       if (byId[vid]) showAffiliateProductsDetail(byId[vid]);
+    };
+  });
+  bindCopyOriginalLink(tbody);
+}
+
+function copyOriginalLinkButton(url) {
+  const safe = escHtml(url || '');
+  if (!safe) return '';
+  return `<button type="button" class="btn btn-sm btn-ghost btn-icon" data-copy-url="${safe}" title="Salin link video asli" aria-label="Salin link video asli"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>`;
+}
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  const ok = document.execCommand('copy');
+  ta.remove();
+  if (!ok) throw new Error('Gagal menyalin link');
+}
+
+function bindCopyOriginalLink(root) {
+  root.querySelectorAll('[data-copy-url]').forEach((btn) => {
+    btn.onclick = async () => {
+      const url = btn.dataset.copyUrl || '';
+      if (!url) {
+        showToast('Link video asli tidak ada', 'error');
+        return;
+      }
+      try {
+        await copyToClipboard(url);
+        showToast('Link video asli disalin');
+      } catch (e) {
+        showToast(e.message || 'Gagal menyalin link', 'error');
+      }
     };
   });
 }

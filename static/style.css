@@ -1276,6 +1276,15 @@ tr.video-row-selected {
 .btn-ghost { background: transparent; color: var(--text-muted); }
 .btn-ghost:hover { color: var(--text); background: var(--bg-hover); }
 .btn-sm { padding: 6px 10px; font-size: 12px; }
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  line-height: 0;
+  vertical-align: middle;
+}
+.btn-icon svg { display: block; }
 
 /* Main */
 .main { padding: 28px 32px; overflow-y: auto; }
